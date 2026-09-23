@@ -60,13 +60,16 @@ All tools return JSON-serialisable dicts with `data`, `caveats` (list of strings
 |---|---|---|---|
 | `describe_data()` | none | schemas of `core.*`, as-of date, `core.dq_issues`, store-day status summary | n/a |
 | `run_sql(query)` | SQL string | ≤200 rows + column types + truncated flag | Read-only connection. Parsed with `sqlglot`: single SELECT/WITH only; tables must be `core.*`; 5s timeout; no `raw.*`, no `app.*` |
-| `forecast_demand(sku, store=None, horizon_days=14)` | SKU (alias codes accepted), store or all, horizon ≤28 | daily P10/P50/P90, model version, segment backtest WAPE | Rejects horizon >28, unknown SKU (suggests close matches) |
+| `forecast_demand(sku, store=None, horizon_days=14)` | SKU (alias codes accepted), store or all, horizon ≤28 | daily mean with P10/P90, horizon total, recent actuals, model version, category backtest WAPE vs baseline | Rejects horizon >28, unknown SKU (suggests close matches) |
 | `detect_anomalies(scope='all', store, dept, end_date, limit=20)` | `sales` / `inventory` / `data_quality` / `all` | counts, $ impact, ranked list per type | Max 50 results; inventory only on the as-of date; no future dates |
 | `explain_variance(period_a_start, period_a_end, period_b_start, period_b_end, by='dept', store)` | two date ranges; group by dept / category / store / sku | revenue delta decomposed into volume / price / mix effects, per group | Periods must be inside data; flags periods overlapping missing store-days |
-| `draft_reorder(store, dept=None, skus=None)` | scope | draft PO lines: SKU, on hand, on order, forecast over lead time + review period, safety stock, order qty (cases), est. cost | Writes only to `po_drafts` in `app.duckdb` (a separate file) with status `PENDING_APPROVAL`. **No tool can approve or send.** |
+| `draft_reorder(store, dept=None, skus=None, review_days=7, service_level=0.95)` | scope + policy knobs | draft PO lines: SKU, on hand, on order, forecast over lead time + review period, safety stock, order qty (cases), est. cost | Writes only to `po_drafts` in `app.duckdb` (a separate file) with status `PENDING_APPROVAL`. **No tool can approve or send.** |
 
-Reorder policy (document in code and README):
-`order_units = max(0, forecast(L + R) + z·σ_daily·√(L + R) − on_hand − on_order)`, then round up to whole cases and at least `min_order_cases`. Defaults: R = 7 days, z = 1.65 (95% cycle service).
+Reorder policy (periodic review, order-up-to; see `tools/reorder.py` and ADR 0004):
+`need = Σ mean(next L+R days) + z·√Σσ_d² − on_hand − on_order`, with σ_d = (P90 − mean)/1.2816 (upper tail only).
+- Order `ceil(need / case_pack)` whole cases when need > 0.
+- One draft per supplier. Supplier minimums are flagged, never auto-inflated.
+- Defaults: R = 7 days, service level 95% (z = 1.645).
 
 **Approval** happens only in the UI or `stockroom approve <id>` CLI. It is a human action, logged with who and when.
 
@@ -103,12 +106,20 @@ Reorder policy (document in code and README):
 
 ## 6. Forecasting
 
-- One global LightGBM model (Tweedie objective) across all store-SKU series.
-- **Features:** lags 7/14/28, rolling means and std, price, price vs. 4-week mean, SNAP, events, day of week, store/dept/category.
-- **Quantiles:** P10 and P90 from separate quantile-objective models.
-- **Backtest:** train through 2016-04-24, test on 2016-04-25 → 2016-05-22 (28 days), using the `core.*` data.
-- **Report:** WAPE and pinball loss vs. a seasonal-naive baseline (same weekday, last 4 weeks), overall and by category. If LightGBM doesn't beat the baseline in a category, say so.
-- **Serving:** retrain on everything and store as `models/lgbm_{version}.txt`. The tool loads it once and forecasts recursively. The model file size must stay reasonable for the deploy image.
+As built (ADR 0004):
+- **Model:** one global LightGBM across all store-SKU series, **direct** rather than recursive. Every demand feature looks back ≥ 28 days, so one model covers the 28-day horizon.
+- **Features:**
+  - lags 28/35/42/49
+  - rolling mean/std/zero-share over windows ending 28 days back
+  - price, price vs. 8-week mean, week-on-week price change
+  - SNAP, event type, day of week/month, series age
+  - store/dept/category/SKU as categoricals
+- **Mean** from a Tweedie model. **P10/P90** from quantile models trained on demand relative to the series' recent level.
+- **Backtest:** origin 2016-04-24. Early stopping on the 28 days before the origin; refit to the origin; score the next 28 days with prices frozen at the origin. A test proves the features don't change when all post-origin data is deleted.
+- **Report:** WAPE and bias vs. the customer's method (same weekday, last 4 weeks), plus a bootstrap CI on the improvement and one-sided quantile calibration.
+  - Covered overall, by category, store and velocity, and at store-dept level.
+  - Segments where the model loses are named in the generated doc.
+- **Serving:** batch-scored nightly into `forecast.duckdb`; the tool reads rows, it doesn't run the model. Training is deterministic (fixed row order + seed).
 - **Do not** compare against or claim M5 leaderboard results. Different subset, different metric.
 
 ## 7. Phases
@@ -128,9 +139,14 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
     - Tool revenue within 0.0002% of truth.
     - All 498 planted stock-outs found; 99.7% of overstock flags are correct.
     - Volume + mix + price sums to the delta for every group.
-- [ ] **P3: Forecast + reorder (2 days).**
-  - Training script, backtest table in `docs/results/forecast_backtest.md`, `forecast_demand`, `draft_reorder`, `po_drafts` in `app.duckdb`.
-  - *Done:* backtest table exists; the reorder math has a hand-checked test case.
+- [x] **P3: Forecast + reorder.**
+  - Direct LightGBM (Tweedie mean + scaled quantile P10/P90), leak-proof backtest, batch scoring into `forecast.duckdb`.
+  - Tools: `forecast_demand`, `draft_reorder`. Drafts go to `app.duckdb`; human-only `stockroom.approvals`. ADR 0004.
+  - *Done:* 92 tests pass.
+    - Store-SKU-day WAPE 73.2% vs baseline 76.8% (+3.6 pp, 95% CI [+3.3, +4.0]); store-dept-day 9.2% vs 9.9%. Loses only on slow sellers (116.7% vs 115.9%).
+    - P90 exceeded on 11.7% of days (target 10%).
+    - No-look-ahead test, with a mutation check proving it can fail.
+    - Hand-checked reorder case; deterministic training.
 - [ ] **P4: Agent loop + CLI (2 days).**
   - `stockroom chat` in the terminal, tracing, cost cap, caveat surfacing.
   - *Done:* 5 hand-picked questions answered correctly in a recorded session.

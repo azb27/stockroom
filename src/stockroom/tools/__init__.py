@@ -14,6 +14,8 @@ from typing import Any
 
 from stockroom.tools.anomalies import SCOPES, detect_anomalies
 from stockroom.tools.base import ToolError, ToolResult, jsonable
+from stockroom.tools.forecast import forecast_demand
+from stockroom.tools.reorder import draft_reorder
 from stockroom.tools.sql import MAX_ROWS, describe_data, run_sql
 from stockroom.tools.variance import GROUPS, explain_variance
 
@@ -96,6 +98,39 @@ TOOLS: dict[str, Tool] = {
                 ["period_a_start", "period_a_end", "period_b_start", "period_b_end"],
             ),
             explain_variance,
+        ),
+        Tool(
+            "forecast_demand",
+            "Daily unit demand forecast for one SKU over the next 1-28 days after the as-of date, with a P10-P90 "
+            "range, for one store or all stores. Accepts legacy SKU spellings. Also returns recent actual demand "
+            "and the model's backtest error for context. Cannot forecast beyond 28 days.",
+            _schema(
+                {
+                    "sku": {"type": "string", "description": "e.g. FOODS_3_090"},
+                    "store": STORE,
+                    "horizon_days": {"type": "integer", "minimum": 1, "maximum": 28},
+                },
+                ["sku"],
+            ),
+            forecast_demand,
+        ),
+        Tool(
+            "draft_reorder",
+            "DRAFT purchase orders for one store: for each active SKU, order up to forecast demand over supplier "
+            "lead time + review period plus safety stock, minus on-hand and on-order, in whole cases. Creates one "
+            "draft per supplier with status PENDING_APPROVAL. It does NOT place, approve or send orders; a human "
+            "buyer must approve each draft. Scope with dept and/or skus to keep drafts reviewable.",
+            _schema(
+                {
+                    "store": STORE,
+                    "dept": {"type": "string", "description": "e.g. FOODS_3"},
+                    "skus": {"type": "array", "items": {"type": "string"}, "maxItems": 100},
+                    "review_days": {"type": "integer", "minimum": 1, "maximum": 14},
+                    "service_level": {"type": "number", "minimum": 0.5, "maximum": 0.995},
+                },
+                ["store"],
+            ),
+            draft_reorder,
         ),
     ]
 }

@@ -106,3 +106,24 @@ def store_day_caveats(
         elif status == "closed_all_stores":
             out.append(f"All stores closed (chain holiday) on {days}: near-zero sales are expected.")
     return out
+
+
+def resolve_sku(cur: duckdb.DuckDBPyConnection, code: str) -> tuple[str, list[str]]:
+    """Map any SKU spelling (FOODS-3-090, foods_3_090 ) to the canonical code.
+
+    Returns (sku, caveats). Raises ToolError with close matches if nothing matches.
+    """
+    if not code or not str(code).strip():
+        raise ToolError("sku is required, e.g. FOODS_3_090")
+    norm = str(code).strip().upper().replace("-", "_").replace(" ", "_")
+    hit = cur.execute("SELECT sku FROM core.dim_sku WHERE sku = ?", [norm]).fetchone()
+    if hit:
+        caveats = [] if norm == code else [f"Interpreted SKU '{code}' as {norm}."]
+        return norm, caveats
+    near = [
+        r[0]
+        for r in cur.execute(
+            "SELECT sku FROM core.dim_sku ORDER BY jaro_winkler_similarity(sku, ?) DESC LIMIT 5", [norm]
+        ).fetchall()
+    ]
+    raise ToolError(f"unknown SKU '{code}'. Closest matches: {', '.join(near)}")
