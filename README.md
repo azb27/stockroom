@@ -2,7 +2,7 @@
 
 **An ops agent for a distributor's messy data: it answers questions, forecasts demand, flags stock-outs, and drafts purchase orders that a human approves. It's measured against 120 ground-truth questions with confidence intervals.**
 
-> Status: **Phase 1 of 8 complete** (data layer). Plan of record: [`SPEC.md`](SPEC.md). Live demo, eval table and demo video land in P5–P8.
+> Status: **Phase 2 of 8 complete** (data layer, tools). Plan of record: [`SPEC.md`](SPEC.md). Live demo, eval table and demo video land in P5–P8.
 
 ## Why this exists
 Most agent demos run on clean data. Real deployments fail on messy data: half-finished ERP migrations, units in the wrong field, files loaded twice, outages that look like zero sales. Stockroom is built like a forward-deployed engagement:
@@ -22,7 +22,7 @@ Real Walmart sales (M5, 4 California stores, 3,049 SKUs, 730 days, 3.65M sales l
 | Store feed outage (2 days) | 2 store-days | Flagged `missing_data`, **not** zero |
 | Christmas closures | 8 store-days | Recognised as a closure, not an error |
 | Prices keyed in cents | 25 | ÷100, flagged |
-| Missing price weeks | 18,472 | Forward-filled, flagged (99.2% exactly match truth) |
+| Missing price weeks | 18,615 | Forward-filled, flagged (99.2% exactly match truth) |
 | SKUs with no case pack | 8 | Department mode, flagged |
 
 **Verified, not asserted:** `pytest` checks the cleaned layer against a separate ground-truth database. Outside the two unrecoverable outage days, every one of the 3.65M daily sales rows matches truth exactly.
@@ -37,11 +37,25 @@ Real Walmart sales (M5, 4 California stores, 3,049 SKUs, 730 days, 3.65M sales l
 pip install -e ".[dev]"            # or: uv sync
 python scripts/fetch_m5.py         # ~325 MB from a public Hugging Face mirror of M5
 python -m stockroom.data.pipeline  # ~20 s: ground truth -> messy warehouse -> cleaned layer
-pytest -q                          # 9 tests
+pytest -q                          # 76 tests
 ```
 
+## Phase 2: the tools
+Four tools the agent will call, each returning `data`, `caveats` and `provenance`. **Caveats are how data-quality knowledge reaches the model.** Ask about CA_4's sales in mid-March and the result says those two days are *unknown*, not zero.
+
+| Tool | What it does | Checked against ground truth |
+|---|---|---|
+| `describe_data` | Schemas, business meaning, data-quality log, outage days | n/a |
+| `run_sql` | One read-only SELECT over the cleaned tables | Revenue within 0.0002% of truth; units exact |
+| `detect_anomalies` | Stock-outs, stock-out risk within lead time, overstock, sales spikes/drops | All 498 planted stock-outs found; 99.7% of overstock flags correct |
+| `explain_variance` | Revenue change split into volume / mix / price | Components sum to the change for every group |
+
+**SQL safety is two independent layers, each tested alone:**
+1. A parser allowlist: one SELECT, cleaned tables only, no table functions. It rejects 27 attack patterns, including `query('...')` smuggling and `read_csv` of the ground-truth file.
+2. A database connection that is read-only, cannot touch the filesystem or load extensions, and cannot unlock itself.
+
 ## Roadmap
-Tools and a guarded SQL layer (P2) → forecasting and reorder drafting (P3) → agent loop (P4) → **120-question eval with bootstrap CIs, model comparison, raw-vs-clean ablation** (P5) → MCP server and Claude Code skill (P6) → web UI with a PO approval queue (P7). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
+Forecasting and reorder drafting (P3) → agent loop (P4) → **120-question eval with bootstrap CIs, model comparison, raw-vs-clean ablation** (P5) → MCP server and Claude Code skill (P6) → web UI with a PO approval queue (P7). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
 
 ## Out of scope
 Sending orders to suppliers, live ERP integration, auth/multi-tenancy, fine-tuning. The agent drafts; humans decide.

@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from stockroom.config import M5_FILES, M5_HF_REPO, RAW_M5_DIR  # noqa: E402
+from stockroom.config import M5_FILES, M5_HF_REPO, RAW_M5_DIR
 
 
 def main() -> None:

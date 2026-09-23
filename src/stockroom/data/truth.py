@@ -95,12 +95,16 @@ def build_truth(con: duckdb.DuckDBPyConnection | None = None) -> None:
 
 def _synthetic_attributes(con: duckdb.DuckDBPyConnection, rng: np.random.Generator) -> None:
     items = con.execute("SELECT * FROM truth.items ORDER BY item_id").df()
-    med_price = con.execute(
-        "SELECT item_id, median(price) AS med FROM truth.prices GROUP BY 1"
-    ).df().set_index("item_id")["med"]
-    last_sale = con.execute(
-        "SELECT item_id, max(date) AS last_sale FROM truth.sales GROUP BY 1"
-    ).df().set_index("item_id")["last_sale"]
+    med_price = (
+        con.execute("SELECT item_id, median(price) AS med FROM truth.prices GROUP BY 1")
+        .df()
+        .set_index("item_id")["med"]
+    )
+    last_sale = (
+        con.execute("SELECT item_id, max(date) AS last_sale FROM truth.sales GROUP BY 1")
+        .df()
+        .set_index("item_id")["last_sale"]
+    )
 
     # 14 suppliers, each serving one department.
     depts = sorted(items["dept_id"].unique())
@@ -167,7 +171,9 @@ def _inventory_snapshot(con: duckdb.DuckDBPyConnection, rng: np.random.Generator
         """
     ).df()
     demand["avg_28d"] = demand["avg_28d"].fillna(0.0)
-    pack = con.execute("SELECT item_id, case_pack FROM truth.item_attrs").df().set_index("item_id")["case_pack"]
+    pack = (
+        con.execute("SELECT item_id, case_pack FROM truth.item_attrs").df().set_index("item_id")["case_pack"]
+    )
 
     n = len(demand)
     cover = rng.lognormal(mean=np.log(14), sigma=0.5, size=n)

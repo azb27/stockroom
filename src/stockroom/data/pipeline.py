@@ -1,7 +1,7 @@
 """Build everything: ground truth -> messy raw warehouse -> cleaned core layer.
 
-    python -m stockroom.data.pipeline            # full rebuild
-    python -m stockroom.data.pipeline --core     # re-run cleaning only
+python -m stockroom.data.pipeline            # full rebuild
+python -m stockroom.data.pipeline --core     # re-run cleaning only
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from pathlib import Path
 import duckdb
 
 from stockroom.config import WAREHOUSE_DB
+from stockroom.data.dirt import build_warehouse
+from stockroom.data.truth import build_truth
 
 SQL_DIR = Path(__file__).parent / "sql"
 
@@ -30,9 +32,6 @@ def main() -> None:
 
     t0 = time.time()
     if not args.core:
-        from stockroom.data.dirt import build_warehouse
-        from stockroom.data.truth import build_truth
-
         print("1/3 ground truth ...", flush=True)
         build_truth()
         print("2/3 raw warehouse + dirt injection ...", flush=True)

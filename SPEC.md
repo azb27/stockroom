@@ -35,14 +35,15 @@ Data honesty (README must say this plainly):
                                          stockroom.tools  (pure Python, typed, unit-tested)
                                          ├── describe_data   ├── forecast_demand
                                          ├── run_sql (guarded)├── detect_anomalies
-                                         ├── explain_variance └── draft_reorder ──> app.po_drafts (PENDING)
+                                         ├── explain_variance └── draft_reorder ──> po_drafts (PENDING)
                                                               │
                               ┌───────────────────────────────┼───────────────────────┐
                               ▼                               ▼                       ▼
                      warehouse.duckdb                 MCP server (FastMCP)    Claude Code skill
                      raw.*  (customer's mess)         same tools, for Claude  .claude/skills/ +
                      core.* (cleaned, READ-ONLY)      Desktop / Code / any     .mcp.json
-                     app.*  (drafts, writable)        MCP client
+                     app.duckdb (drafts, traces;      MCP client
+                       separate file, writable)
 
        ground_truth.duckdb ── used ONLY by tests/ and evals/. Never reachable from tools.
 ```
@@ -60,9 +61,9 @@ All tools return JSON-serialisable dicts with `data`, `caveats` (list of strings
 | `describe_data()` | none | schemas of `core.*`, as-of date, `core.dq_issues`, store-day status summary | n/a |
 | `run_sql(query)` | SQL string | ≤200 rows + column types + truncated flag | Read-only connection. Parsed with `sqlglot`: single SELECT/WITH only; tables must be `core.*`; 5s timeout; no `raw.*`, no `app.*` |
 | `forecast_demand(sku, store=None, horizon_days=14)` | SKU (alias codes accepted), store or all, horizon ≤28 | daily P10/P50/P90, model version, segment backtest WAPE | Rejects horizon >28, unknown SKU (suggests close matches) |
-| `detect_anomalies(scope, window_days=28)` | `sales` / `inventory` / `data_quality` / `all`, optional store/dept | ranked list with score + reason | Max 50 results |
-| `explain_variance(period_a, period_b, by='dept')` | two date ranges, grouping | revenue delta decomposed into volume / price / mix effects, per group | Periods must be inside data; flags periods overlapping missing store-days |
-| `draft_reorder(store, dept=None, skus=None)` | scope | draft PO lines: SKU, on hand, on order, forecast over lead time + review period, safety stock, order qty (cases), est. cost | Writes only to `app.po_drafts` with status `PENDING_APPROVAL`. **No tool can approve or send.** |
+| `detect_anomalies(scope='all', store, dept, end_date, limit=20)` | `sales` / `inventory` / `data_quality` / `all` | counts, $ impact, ranked list per type | Max 50 results; inventory only on the as-of date; no future dates |
+| `explain_variance(period_a_start, period_a_end, period_b_start, period_b_end, by='dept', store)` | two date ranges; group by dept / category / store / sku | revenue delta decomposed into volume / price / mix effects, per group | Periods must be inside data; flags periods overlapping missing store-days |
+| `draft_reorder(store, dept=None, skus=None)` | scope | draft PO lines: SKU, on hand, on order, forecast over lead time + review period, safety stock, order qty (cases), est. cost | Writes only to `po_drafts` in `app.duckdb` (a separate file) with status `PENDING_APPROVAL`. **No tool can approve or send.** |
 
 Reorder policy (document in code and README):
 `order_units = max(0, forecast(L + R) + z·σ_daily·√(L + R) − on_hand − on_order)`, then round up to whole cases and at least `min_order_cases`. Defaults: R = 7 days, z = 1.65 (95% cycle service).
@@ -74,7 +75,7 @@ Reorder policy (document in code and README):
 - Anthropic Python SDK, manual loop (readable in one file, ~150 lines). Models: `claude-sonnet-5` (default), `claude-haiku-4-5-20251001` (cheap tier), set via env.
 - System prompt: role, as-of date, "always surface caveats from tool results", "never state a number you did not get from a tool", "you cannot approve or send POs", and out-of-scope list.
 - Limits: 12 tool calls per turn, $0.50 per conversation (computed from `usage`), 60s wall clock.
-- Tracing: every turn is written to `app.traces` (JSONL mirror in `runs/`): messages, tool inputs and outputs, tokens, cost, latency. The UI renders the tool trace; evals read it.
+- Tracing: every turn is written to `traces` in `app.duckdb` (JSONL mirror in `runs/`): messages, tool inputs and outputs, tokens, cost, latency. The UI renders the tool trace; evals read it.
 - Prompt caching on the system prompt and tool definitions.
 
 ## 5. Evaluation (the headline)
@@ -117,11 +118,18 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
 - [x] **P1: Data layer.**
   - Ground truth, raw warehouse with 7 injected issue classes, cleaned `core.*`, `core.dq_issues`.
   - *Done:* `make data && make test` passes 9/9; sales recovered exactly; price imputation 99.2% exact.
-- [ ] **P2: Tools library (2 days).**
-  - `src/stockroom/tools/`: `describe_data`, `run_sql` with the sqlglot guard, `detect_anomalies`, `explain_variance`.
-  - *Done:* unit tests, including guard tests (DROP, `raw.*` access, multi-statement, `ATTACH`, `COPY`, `read_csv` table functions all rejected).
+- [x] **P2: Tools library.**
+  - `src/stockroom/tools/`: `describe_data`, `run_sql`, `detect_anomalies`, `explain_variance`, plus a registry with strict JSON schemas and a single `call()` entry point.
+  - Two independent SQL safety layers:
+    1. a sqlglot allowlist
+    2. a read-only DuckDB connection with external access disabled and settings locked
+  - *Done:* 76 tests pass.
+    - 27 attacks rejected by the guard alone; 7 blocked by the connection alone.
+    - Tool revenue within 0.0002% of truth.
+    - All 498 planted stock-outs found; 99.7% of overstock flags are correct.
+    - Volume + mix + price sums to the delta for every group.
 - [ ] **P3: Forecast + reorder (2 days).**
-  - Training script, backtest table in `docs/results/forecast_backtest.md`, `forecast_demand`, `draft_reorder`, `app.po_drafts`.
+  - Training script, backtest table in `docs/results/forecast_backtest.md`, `forecast_demand`, `draft_reorder`, `po_drafts` in `app.duckdb`.
   - *Done:* backtest table exists; the reorder math has a hand-checked test case.
 - [ ] **P4: Agent loop + CLI (2 days).**
   - `stockroom chat` in the terminal, tracing, cost cap, caveat surfacing.

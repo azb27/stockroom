@@ -52,21 +52,29 @@ def build_warehouse() -> dict:
     manifest: dict = {"seed": SEED, "issues": []}
 
     # ---- choose affected keys up front so issue sets are disjoint -------------------
-    recent = con.execute(
-        f"SELECT DISTINCT item_id FROM gt.truth.sales WHERE date >= DATE '{MIGRATION_DATE}' ORDER BY 1"
-    ).df()["item_id"].tolist()
-    uom_pool = con.execute(
-        f"""SELECT item_id FROM gt.truth.sales s JOIN gt.truth.items i USING (item_id)
+    recent = (
+        con.execute(
+            f"SELECT DISTINCT item_id FROM gt.truth.sales WHERE date >= DATE '{MIGRATION_DATE}' ORDER BY 1"
+        )
+        .df()["item_id"]
+        .tolist()
+    )
+    uom_pool = (
+        con.execute(
+            f"""SELECT item_id FROM gt.truth.sales s JOIN gt.truth.items i USING (item_id)
             WHERE store_id = '{UOM_STORE}' AND dept_id = '{UOM_DEPT}'
               AND date BETWEEN DATE '{UOM_START}' AND DATE '{UOM_END}'
             GROUP BY 1 HAVING count(*) >= 20 ORDER BY 1"""
-    ).df()["item_id"].tolist()
+        )
+        .df()["item_id"]
+        .tolist()
+    )
 
     uom_skus = sorted(rng.choice(uom_pool, 15, replace=False).tolist())
     alias_pool = [s for s in recent if s not in set(uom_skus)]
     alias_skus = sorted(rng.choice(alias_pool, 40, replace=False).tolist())
     kinds = ["hyphen"] * 25 + ["lower"] * 10 + ["trailing_space"] * 5
-    alias_map = {s: (k, _variant(s, k)) for s, k in zip(alias_skus, rng.permutation(kinds))}
+    alias_map = {s: (k, _variant(s, k)) for s, k in zip(alias_skus, rng.permutation(kinds), strict=True)}
     taken = set(uom_skus) | set(alias_skus)
     all_items = con.execute("SELECT item_id FROM gt.truth.items ORDER BY 1").df()["item_id"].tolist()
     cp_skus = sorted(rng.choice([s for s in all_items if s not in taken], 8, replace=False).tolist())
@@ -92,8 +100,13 @@ def build_warehouse() -> dict:
     con.execute("CREATE TABLE raw.calendar AS SELECT * FROM gt.truth.calendar")
 
     manifest["issues"].append(
-        {"id": "D7", "type": "case_pack_missing", "table": "raw.erp_sku_master",
-         "skus": cp_skus, "detail": "case_pack set to NULL (even idx) or 0 (odd idx)"}
+        {
+            "id": "D7",
+            "type": "case_pack_missing",
+            "table": "raw.erp_sku_master",
+            "skus": cp_skus,
+            "detail": "case_pack set to NULL (even idx) or 0 (odd idx)",
+        }
     )
 
     # ---- POS sales lines + load log ----------------------------------------------------
@@ -116,8 +129,14 @@ def build_warehouse() -> dict:
         f"AND txn_date IN ({', '.join(f'DATE {d!r}' for d in MISSING_DAYS)})"
     )
     manifest["issues"].append(
-        {"id": "D4", "type": "missing_days", "table": "raw.pos_sales_lines",
-         "store": MISSING_STORE, "dates": MISSING_DAYS, "rows_removed": int(n_missing)}
+        {
+            "id": "D4",
+            "type": "missing_days",
+            "table": "raw.pos_sales_lines",
+            "store": MISSING_STORE,
+            "dates": MISSING_DAYS,
+            "rows_removed": int(n_missing),
+        }
     )
 
     # D2: cases instead of eaches
@@ -137,9 +156,16 @@ def build_warehouse() -> dict:
     )
     n_uom = con.execute("SELECT count(*) FROM lines WHERE uom <> 'EA'").fetchone()[0]
     manifest["issues"].append(
-        {"id": "D2", "type": "uom_cases", "table": "raw.pos_sales_lines", "store": UOM_STORE,
-         "window": [UOM_START, UOM_END], "skus": uom_skus, "rows_affected": int(n_uom),
-         "uom_labels": uom_labels}
+        {
+            "id": "D2",
+            "type": "uom_cases",
+            "table": "raw.pos_sales_lines",
+            "store": UOM_STORE,
+            "window": [UOM_START, UOM_END],
+            "skus": uom_skus,
+            "rows_affected": int(n_uom),
+            "uom_labels": uom_labels,
+        }
     )
 
     # D1: alias codes after migration
@@ -151,10 +177,15 @@ def build_warehouse() -> dict:
     )
     n_alias = con.execute("SELECT count(*) FROM lines l JOIN amap ON l.sku_code = amap.variant").fetchone()[0]
     manifest["issues"].append(
-        {"id": "D1", "type": "sku_alias", "tables": ["raw.pos_sales_lines", "raw.erp_sku_master",
-         "raw.inventory_snapshot"], "migration_date": MIGRATION_DATE,
-         "aliases": amap.to_dict(orient="records"), "sales_rows_affected": int(n_alias),
-         "detail": "hyphen variants also exist as rows in erp_sku_master and in inventory"}
+        {
+            "id": "D1",
+            "type": "sku_alias",
+            "tables": ["raw.pos_sales_lines", "raw.erp_sku_master", "raw.inventory_snapshot"],
+            "migration_date": MIGRATION_DATE,
+            "aliases": amap.to_dict(orient="records"),
+            "sales_rows_affected": int(n_alias),
+            "detail": "hyphen variants also exist as rows in erp_sku_master and in inventory",
+        }
     )
 
     # batches: one per source file, loaded the Saturday after the week closes
@@ -188,10 +219,18 @@ def build_warehouse() -> dict:
             FROM raw.pos_sales_lines l JOIN raw.load_log b USING (load_batch_id)
             WHERE b.source_file = '{dup_file}' AND l.load_batch_id <> {new_id}"""
     )
-    n_dup = con.execute(f"SELECT count(*) FROM raw.pos_sales_lines WHERE load_batch_id = {new_id}").fetchone()[0]
+    n_dup = con.execute(
+        f"SELECT count(*) FROM raw.pos_sales_lines WHERE load_batch_id = {new_id}"
+    ).fetchone()[0]
     manifest["issues"].append(
-        {"id": "D3", "type": "duplicate_load", "table": "raw.pos_sales_lines", "source_file": dup_file,
-         "duplicate_batch_id": int(new_id), "rows_duplicated": int(n_dup)}
+        {
+            "id": "D3",
+            "type": "duplicate_load",
+            "table": "raw.pos_sales_lines",
+            "source_file": dup_file,
+            "duplicate_batch_id": int(new_id),
+            "rows_duplicated": int(n_dup),
+        }
     )
 
     # ---- price book ------------------------------------------------------------------
@@ -212,19 +251,30 @@ def build_warehouse() -> dict:
     prices = prices.drop(index=gap_idx)
     # alias codes flow into the price book after migration too (hyphen variants only)
     hy = {s: v for s, (k, v) in alias_map.items() if k == "hyphen"}
-    mig_wk = con.execute(f"SELECT wm_yr_wk FROM gt.truth.calendar WHERE date = DATE '{MIGRATION_DATE}'").fetchone()[0]
+    mig_wk = con.execute(
+        f"SELECT wm_yr_wk FROM gt.truth.calendar WHERE date = DATE '{MIGRATION_DATE}'"
+    ).fetchone()[0]
     mask = prices.sku_code.isin(hy) & (prices.wm_yr_wk >= mig_wk)
     prices.loc[mask, "sku_code"] = prices.loc[mask, "sku_code"].map(hy)
     con.register("prices_df", prices)
     con.execute("CREATE TABLE raw.price_book AS SELECT * FROM prices_df")
 
     manifest["issues"].append(
-        {"id": "D5", "type": "price_unit_error", "table": "raw.price_book",
-         "rows": cents_rows.rename(columns={"price": "true_price"}).to_dict(orient="records")}
+        {
+            "id": "D5",
+            "type": "price_unit_error",
+            "table": "raw.price_book",
+            "rows": cents_rows.rename(columns={"price": "true_price"}).to_dict(orient="records"),
+        }
     )
     manifest["issues"].append(
-        {"id": "D6", "type": "price_gap", "table": "raw.price_book", "rows_removed": int(len(gap_rows)),
-         "rows": gap_rows.rename(columns={"price": "true_price"}).to_dict(orient="records")}
+        {
+            "id": "D6",
+            "type": "price_gap",
+            "table": "raw.price_book",
+            "rows_removed": len(gap_rows),
+            "rows": gap_rows.rename(columns={"price": "true_price"}).to_dict(orient="records"),
+        }
     )
 
     # ---- inventory snapshot (hyphen aliases, since it post-dates migration) ------------

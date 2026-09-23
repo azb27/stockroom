@@ -15,7 +15,7 @@ The agent needs a realistic "customer warehouse" to work against. Real distribut
 - We can assert exact recovery (sales rows match truth exactly outside the 2 unrecoverable missing days).
 - Eval answers computed from ground truth penalise cleaning mistakes, as a customer would.
 - Honest limit: cleaning is proven against known, injected issue classes, not unknown ones. The README must say so.
-- DuckDB allows one writer. Agent drafts go to a separate `app` schema, written only by the API process. This is acceptable for a single-instance demo, and would move to Postgres for multi-user.
+- The warehouse is always opened read-only with external access disabled (see `tools/base.py`). Drafts and traces go to a separate `app.duckdb` file written only by the API process. DuckDB allows one writer per file, which is fine for a single-instance demo; multi-user would move `app` to Postgres.
 
 ## Alternatives considered
 - **Postgres/Supabase:** a hosted DB adds ops and cost for no demo benefit. Revisit for multi-user.
