@@ -34,6 +34,8 @@ FROM m JOIN dept_mode USING (dept);
 CREATE OR REPLACE TABLE core.dim_supplier AS SELECT * FROM raw.erp_suppliers;
 CREATE OR REPLACE TABLE core.dim_store AS SELECT store_code AS store, account_name FROM raw.stores;
 CREATE OR REPLACE TABLE core.dim_date AS SELECT * FROM raw.calendar;
+-- known-in-advance calendar (events, SNAP) for the forecast horizon; no sales exist for these dates
+CREATE OR REPLACE TABLE core.dim_date_future AS SELECT * FROM raw.calendar_future;
 
 -- 3. Load de-duplication (D3): keep the first load of each source file --------------------
 CREATE OR REPLACE TABLE core.load_batches AS

@@ -15,7 +15,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from stockroom.config import AS_OF_DATE, RAW_M5_DIR, SEED, START_DATE, STATE, TRUTH_DB
+from stockroom.config import AS_OF_DATE, HORIZON_DAYS, RAW_M5_DIR, SEED, START_DATE, STATE, TRUTH_DB
 
 CASE_PACKS = {"FOODS": [12, 24], "HOUSEHOLD": [6, 12], "HOBBIES": [4, 6, 12]}
 LEAD_TIMES = [3, 5, 7, 10, 14]
@@ -39,6 +39,18 @@ def build_truth(con: duckdb.DuckDBPyConnection | None = None) -> None:
                CAST(snap_{STATE} AS BOOLEAN) AS snap
         FROM read_csv_auto('{cal_csv}')
         WHERE CAST(date AS DATE) BETWEEN DATE '{START_DATE}' AND DATE '{AS_OF_DATE}'
+        """
+    )
+    # The event/SNAP calendar is published in advance, so the next HORIZON_DAYS are known today.
+    con.execute(
+        f"""
+        CREATE TABLE truth.calendar_future AS
+        SELECT CAST(date AS DATE) AS date, wm_yr_wk, weekday, month, year,
+               event_name_1, event_type_1, event_name_2, event_type_2,
+               CAST(snap_{STATE} AS BOOLEAN) AS snap
+        FROM read_csv_auto('{cal_csv}')
+        WHERE CAST(date AS DATE) > DATE '{AS_OF_DATE}'
+          AND CAST(date AS DATE) <= DATE '{AS_OF_DATE}' + INTERVAL {HORIZON_DAYS} DAY
         """
     )
     days = [r[0] for r in con.execute("SELECT d FROM truth.calendar ORDER BY date").fetchall()]

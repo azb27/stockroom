@@ -98,6 +98,7 @@ def build_warehouse() -> dict:
     con.execute("CREATE TABLE raw.erp_suppliers AS SELECT * FROM gt.truth.suppliers")
     con.execute("CREATE TABLE raw.stores AS SELECT store_id AS store_code, account_name FROM gt.truth.stores")
     con.execute("CREATE TABLE raw.calendar AS SELECT * FROM gt.truth.calendar")
+    con.execute("CREATE TABLE raw.calendar_future AS SELECT * FROM gt.truth.calendar_future")
 
     manifest["issues"].append(
         {

@@ -16,6 +16,11 @@ RAW_M5_DIR = DATA_DIR / "m5"
 TRUTH_DB = DATA_DIR / "ground_truth.duckdb"
 WAREHOUSE_DB = DATA_DIR / "warehouse.duckdb"
 DIRT_MANIFEST = DATA_DIR / "dirt_manifest.json"
+# forecast.duckdb -> batch-scored forecasts + model metadata (written by training, read-only to tools)
+# app.duckdb      -> PO drafts and traces (the only file the running app writes)
+FORECAST_DB = DATA_DIR / "forecast.duckdb"
+APP_DB = DATA_DIR / "app.duckdb"
+MODEL_DIR = ROOT / "models"
 
 M5_HF_REPO = "denephew/M5_Forecasting"
 M5_FILES = ("calendar.csv", "sales_train_evaluation.csv", "sell_prices.csv")
@@ -23,5 +28,6 @@ M5_FILES = ("calendar.csv", "sales_train_evaluation.csv", "sell_prices.csv")
 STATE = "CA"
 START_DATE = "2014-05-24"  # a Saturday = start of a Walmart week
 AS_OF_DATE = "2016-05-22"  # last day of M5 evaluation data; the agent's "today"
+HORIZON_DAYS = 28  # forecast horizon; the event/SNAP calendar is known this far ahead
 
 SEED = 27
