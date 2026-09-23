@@ -87,8 +87,13 @@ WITH p AS (
            CASE WHEN p.price > 20 * med.med THEN round(p.price / 100, 2) ELSE p.price END AS price,
            p.price > 20 * med.med AS was_corrected
     FROM p JOIN med USING (store, sku)
+), last_sale_week AS (
+    SELECT s.store, s.sku, max(d.wm_yr_wk) AS wk
+    FROM core.fact_sales_daily s JOIN core.dim_date d USING (date) GROUP BY ALL
 ), bounds AS (
-    SELECT store, sku, min(wm_yr_wk) AS w0, max(wm_yr_wk) AS w1 FROM corr GROUP BY ALL
+    -- extend to the last week with sales, so a missing final price-book row is still filled
+    SELECT c.store, c.sku, min(c.wm_yr_wk) AS w0, greatest(max(c.wm_yr_wk), max(l.wk)) AS w1
+    FROM corr c LEFT JOIN last_sale_week l USING (store, sku) GROUP BY ALL
 ), weeks AS (
     SELECT DISTINCT wm_yr_wk FROM core.dim_date
 ), grid AS (
@@ -104,6 +109,15 @@ SELECT store, sku, wm_yr_wk,
        price IS NULL AS is_imputed,
        coalesce(was_corrected, false) AS was_corrected
 FROM g;
+
+-- 6b. Convenience view: daily sales with price and revenue (the view most questions need) --------
+CREATE OR REPLACE VIEW core.sales_enriched AS
+SELECT s.date, d.wm_yr_wk, s.store, s.sku, k.dept, k.category, s.units,
+       p.price, round(s.units * p.price, 2) AS revenue, p.is_imputed AS price_is_imputed
+FROM core.fact_sales_daily s
+JOIN core.dim_date d USING (date)
+JOIN core.dim_sku k USING (sku)
+LEFT JOIN core.fact_price_weekly p ON p.store = s.store AND p.sku = s.sku AND p.wm_yr_wk = d.wm_yr_wk;
 
 -- 7. Inventory (alias-resolved) -------------------------------------------------------------
 CREATE OR REPLACE TABLE core.inventory AS
