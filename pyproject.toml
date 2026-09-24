@@ -10,11 +10,12 @@ dependencies = [
   "pyarrow>=15",
   "sqlglot>=25",
   "lightgbm>=4.3",
+  "anthropic>=1.8",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.14"]
-# added in later phases: anthropic (P4), mcp (P6), fastapi+uvicorn (P7)
+# added in later phases: mcp (P6), fastapi+uvicorn (P7)
 
 [build-system]
 requires = ["hatchling"]

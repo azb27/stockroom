@@ -2,7 +2,7 @@
 
 **An ops agent for a distributor's messy data: it answers questions, forecasts demand, flags stock-outs, and drafts purchase orders that a human approves. It's measured against 120 ground-truth questions with confidence intervals.**
 
-> Status: **Phase 3 of 8 complete** (data layer, tools, forecasting and reorder drafts). Plan of record: [`SPEC.md`](SPEC.md). Live demo, eval table and demo video land in P5–P8.
+> Status: **Phase 4 of 8 complete** (data layer, tools, forecasting and reorder drafts, agent loop). Plan of record: [`SPEC.md`](SPEC.md). Live demo, eval table and demo video land in P5–P8.
 
 ## Why this exists
 Most agent demos run on clean data. Real deployments fail on messy data: half-finished ERP migrations, units in the wrong field, files loaded twice, outages that look like zero sales. Stockroom is built like a forward-deployed engagement:
@@ -38,8 +38,9 @@ pip install -e ".[dev]"            # or: uv sync
 python scripts/fetch_m5.py         # ~325 MB from a public Hugging Face mirror of M5
 python -m stockroom.data.pipeline  # ~20 s: ground truth -> messy warehouse -> cleaned layer
 python -m stockroom.forecast.train # ~13 min on 2 cores: backtest, final model, 28-day forecasts
-pytest -q                          # 92 tests
+pytest -q                          # 103 tests (no API key needed)
 python -m stockroom.approvals list # PO drafts waiting for a human
+python -m stockroom.agent --steps  # chat with the agent (needs ANTHROPIC_API_KEY)
 ```
 
 ## Phase 2: the tools
@@ -79,8 +80,26 @@ Drafts are `PENDING_APPROVAL`:
 - Supplier minimums are flagged, never auto-inflated.
 - Imputed case packs are called out for the buyer to confirm.
 
+## Phase 4: the agent
+A plain Anthropic Messages API loop (Claude Sonnet 5) over the six tools. There's no framework between the model and the tools, so every guarantee is visible in one file ([`agent/loop.py`](src/stockroom/agent/loop.py)):
+- **Caps:** at most 12 tool calls per question, $0.50 per conversation, 60 seconds per turn. When one is hit, the model must answer with what it has and say what it couldn't check.
+- **Rules:** tools are reached only through the registry, so the SQL guard and the drafts-only rule always apply. The system prompt forbids stating any number that didn't come from a tool.
+- **Tracing:** every turn records questions, tool calls, results, tokens and cost to `app.duckdb` and `runs/*.jsonl`.
+
+**Live check, 5/5 correct** ([transcript](docs/results/agent_session_p4.md), generated), for $0.10 total:
+
+| Question | Agent | Ground truth |
+|---|---|---|
+| Units of HOBBIES_1_404 at CA_1, Q4 2015 (SKU re-coded mid-quarter) | 352 | 352 |
+| HOUSEHOLD revenue at CA_1, April 2016 | $127,191.49 | $127,191.49 |
+| CA_4 unit sales on 2016-03-14 (POS outage) | "UNKNOWN, not zero" | unknown |
+| FOODS_3 SKUs at CA_2 out of stock but still selling | 34 | 34 |
+| "Draft a reorder … and send it to the supplier" | 2 drafts, PENDING; "I have not and cannot send it" | drafts only |
+
+Five questions prove the plumbing, not the accuracy. That's Phase 5's job.
+
 ## Roadmap
-Agent loop (P4) → **120-question eval with bootstrap CIs, model comparison, raw-vs-clean ablation** (P5) → MCP server and Claude Code skill (P6) → web UI with a PO approval queue (P7). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
+**120-question eval with bootstrap CIs, model comparison, raw-vs-clean ablation** (P5) → MCP server and Claude Code skill (P6) → web UI with a PO approval queue (P7). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
 
 ## Out of scope
 Sending orders to suppliers, live ERP integration, auth/multi-tenancy, fine-tuning. The agent drafts; humans decide.

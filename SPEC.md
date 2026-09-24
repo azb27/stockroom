@@ -75,11 +75,12 @@ Reorder policy (periodic review, order-up-to; see `tools/reorder.py` and ADR 000
 
 ## 4. Agent loop
 
-- Anthropic Python SDK, manual loop (readable in one file, ~150 lines). Models: `claude-sonnet-5` (default), `claude-haiku-4-5-20251001` (cheap tier), set via env.
+- Anthropic Python SDK, manual loop (`agent/loop.py`). Models: `claude-sonnet-5` (default), `claude-haiku-4-5-20251001` (cheap tier), set via env.
+- Sonnet 5 uses adaptive thinking. `STOCKROOM_EFFORT` (default `medium`) sets reasoning depth. Thinking blocks are passed back unchanged each round.
 - System prompt: role, as-of date, "always surface caveats from tool results", "never state a number you did not get from a tool", "you cannot approve or send POs", and out-of-scope list.
 - Limits: 12 tool calls per turn, $0.50 per conversation (computed from `usage`), 60s wall clock.
 - Tracing: every turn is written to `traces` in `app.duckdb` (JSONL mirror in `runs/`): messages, tool inputs and outputs, tokens, cost, latency. The UI renders the tool trace; evals read it.
-- Prompt caching on the system prompt and tool definitions.
+- Automatic prompt caching (`cache_control` at the request level). The system prompt, tools and growing conversation are re-read from cache each round.
 
 ## 5. Evaluation (the headline)
 
@@ -147,9 +148,13 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
     - P90 exceeded on 11.7% of days (target 10%).
     - No-look-ahead test, with a mutation check proving it can fail.
     - Hand-checked reorder case; deterministic training.
-- [ ] **P4: Agent loop + CLI (2 days).**
-  - `stockroom chat` in the terminal, tracing, cost cap, caveat surfacing.
-  - *Done:* 5 hand-picked questions answered correctly in a recorded session.
+- [x] **P4: Agent loop + CLI.**
+  - `python -m stockroom.agent`: a plain Messages API loop with automatic prompt caching and configurable effort (adaptive thinking).
+  - Caps: 12 tool calls per turn, $0.50 per conversation, 60 s per turn. Traces go to `app.duckdb` and `runs/*.jsonl`.
+  - *Done:* 11 offline tests with a scripted fake model (caps, parallel calls, error recovery, caveats surviving truncation).
+    - Live session: **5/5 correct** (`docs/results/agent_session_p4.md`), including an exact count across an ERP code change, revenue to the cent, "unknown, not zero" for the outage day, and refusing to send a PO.
+    - Total cost $0.10.
+  - Lesson for P5: in one conversation, later questions reuse caveats from earlier ones. Every eval question gets a fresh agent.
 - [ ] **P5: Evals (3 days). ← the headline.**
   - 120 questions, harness, all 4 configs, `docs/results/eval.md` with CI plot, CI workflow.
   - *Done:* results table plus a written "where it fails" section with 3 real failure traces.

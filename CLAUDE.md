@@ -13,6 +13,8 @@ uv run python -m stockroom.data.pipeline       # truth -> raw+dirt -> core   (~2
 uv run python -m stockroom.data.pipeline --core  # re-run cleaning only
 uv run python -m stockroom.forecast.train       # backtest + final model + 28-day forecasts (~15 min, 2 cores)
 uv run python -m stockroom.approvals list       # PO drafts; approve/reject is human-only
+uv run python -m stockroom.agent --steps        # chat with the agent (needs ANTHROPIC_API_KEY)
+uv run python -m evals.p4_live_session          # 5-question live check, writes docs/results (~$0.10)
 uv run pytest -q                               # tests (need data built)
 ```
 `make data`, `make forecast`, `make test`, `make lint` wrap these on macOS/Linux. Install the secret guard once per clone: `ln -sf ../../scripts/pre-commit .git/hooks/pre-commit`. The API key lives in an untracked env file, never in the repo.
@@ -42,8 +44,8 @@ src/stockroom/tools/           registry (__init__.call), base.py (envelope + loc
 src/stockroom/forecast/        features.py (direct, every feature >= 28 days back), train.py (backtest + batch scoring)
 src/stockroom/appdb.py, approvals.py   drafts DB; human-only approve/reject CLI
 src/stockroom/stats.py         bootstrap CI, WAPE, McNemar (shared with evals)
-src/stockroom/agent/           (P4) loop.py, prompts.py, tracing.py
+src/stockroom/agent/           loop.py (caps: tools/cost/time), prompts.py, pricing.py, tracing.py, __main__ (CLI)
 src/stockroom/mcp_server.py    (P6)
-evals/                         (P5) questions.yaml, run.py, stats.py
+evals/                         p4_live_session.py; (P5) questions.yaml, run.py. Each eval question gets a FRESH Agent.
 docs/adr/  docs/engagement/  docs/results/
 ```
