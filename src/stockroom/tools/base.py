@@ -38,6 +38,14 @@ def warehouse(db_path: Path = WAREHOUSE_DB) -> duckdb.DuckDBPyConnection:
         return _conns[key]
 
 
+def close_all() -> None:
+    """Close shared connections (tests that need a differently-configured connection call this)."""
+    with _lock:
+        for c in _conns.values():
+            c.close()
+        _conns.clear()
+
+
 class ToolError(Exception):
     """A user-facing error: the message is returned to the model so it can recover."""
 

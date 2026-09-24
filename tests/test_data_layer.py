@@ -12,12 +12,14 @@ import duckdb
 import pytest
 
 from stockroom.config import DIRT_MANIFEST, TRUTH_DB, WAREHOUSE_DB
+from stockroom.tools.base import close_all
 
 
 @pytest.fixture(scope="module")
 def con():
     if not WAREHOUSE_DB.exists():
         pytest.skip("run `make data` first")
+    close_all()  # DuckDB allows one configuration per file per process; tools use a locked one
     c = duckdb.connect(str(WAREHOUSE_DB), read_only=True)
     c.execute(f"ATTACH '{TRUTH_DB}' AS gt (READ_ONLY)")
     yield c
