@@ -5,6 +5,10 @@ from __future__ import annotations
 import threading
 import time
 
+import sqlglot
+from sqlglot import exp
+
+from stockroom import config
 from stockroom.tools import sql_guard
 from stockroom.tools.base import ToolError, ToolResult, as_of, store_day_caveats, warehouse
 
@@ -27,6 +31,41 @@ SEMANTICS = [
     ),
     "Prices with price_is_imputed = true were forward-filled from the previous week.",
 ]
+
+
+RAW_SEMANTICS = [
+    "Today (as-of date) is {as_of}. Data covers {start} to {end}.",
+    "These are the ERP and POS exports exactly as the customer delivered them. Nothing has been cleaned.",
+    (
+        "raw.pos_sales_lines has one row per POS line: qty in the unit given by the uom column; load_batch_id links "
+        "to raw.load_log. raw.price_book has weekly shelf prices by store and SKU (wm_yr_wk joins raw.calendar)."
+    ),
+    "raw.erp_sku_master holds SKU attributes (case_pack, unit_cost, supplier_id); raw.erp_suppliers has lead times.",
+    "raw.inventory_snapshot has on-hand and on-order stock on the as-of date.",
+]
+
+
+def describe_raw() -> ToolResult:
+    """Eval-only (raw-data ablation): what the customer handed over, with no cleaning layer."""
+    cur = warehouse().cursor()
+    cols = cur.execute(
+        """SELECT table_name, column_name, data_type FROM information_schema.columns
+           WHERE table_schema = 'raw' ORDER BY table_name, ordinal_position"""
+    ).fetchall()
+    tables: dict[str, dict] = {}
+    for t, c, typ in cols:
+        tables.setdefault(t, {"columns": {}})["columns"][c] = typ
+    for t, meta in tables.items():
+        meta["rows"] = cur.execute(f"SELECT count(*) FROM raw.{t}").fetchone()[0]
+    start, end = cur.execute("SELECT min(date), max(date) FROM raw.calendar").fetchone()
+    return ToolResult(
+        data={
+            "as_of_date": as_of(),
+            "tables": {f"raw.{k}": v for k, v in tables.items()},
+            "semantics": [s.format(as_of=as_of(), start=start, end=end) for s in RAW_SEMANTICS],
+        },
+        provenance={"tables": ["information_schema.columns"]},
+    )
 
 
 def describe_data() -> ToolResult:
@@ -55,6 +94,67 @@ def describe_data() -> ToolResult:
         caveats=store_day_caveats(cur),
         provenance={"tables": ["information_schema.columns", "core.dq_issues", "core.store_day_status"]},
     )
+
+
+def _looks_empty(rows: list[tuple]) -> bool:
+    return not rows or (len(rows) == 1 and all(v in (0, None) for v in rows[0]))
+
+
+def filter_hints(cur, sql: str, schemas: frozenset[str], limit: int = 3) -> list[str]:
+    """When a query comes back empty (or a lone 0), check its `column = 'text'` filters against the data.
+
+    Found by the P5 eval: agents wrote status = 'active' (data says 'ACTIVE'), got nothing back, and
+    confidently answered 0. A hint turns a silent wrong answer into a visible, fixable one.
+    """
+    try:
+        tree = sqlglot.parse_one(sql, dialect="duckdb")
+    except Exception:
+        return []
+    preds: list[tuple[str, str]] = []
+    for node in tree.find_all(exp.EQ, exp.In):
+        col = node.find(exp.Column)
+        lits = [lit for lit in node.find_all(exp.Literal) if lit.is_string]
+        if col is not None and lits:
+            preds += [(col.name.lower(), lit.this) for lit in lits]
+    if not preds:
+        return []
+    referenced = {t.name.lower() for t in tree.find_all(exp.Table)}
+    hints: list[str] = []
+    for col, val in dict.fromkeys(preds):  # de-duplicate, keep order
+        tables = cur.execute(
+            "SELECT table_schema, table_name FROM information_schema.columns "
+            "WHERE column_name = ? AND table_schema IN (SELECT unnest(?)) ORDER BY table_name",
+            [col, sorted(schemas)],
+        ).fetchall()
+        tables = [t for t in tables if t[1].lower() in referenced] or tables[:1]
+        for schema, table in tables[:1]:
+            fq = f"{schema}.{table}"
+            if cur.execute(f'SELECT 1 FROM {fq} WHERE "{col}" = ? LIMIT 1', [val]).fetchone():
+                continue
+            alt = cur.execute(
+                f'SELECT DISTINCT CAST("{col}" AS VARCHAR) FROM {fq} WHERE lower(CAST("{col}" AS VARCHAR)) = lower(?) LIMIT 1',
+                [val],
+            ).fetchone()
+            if alt:
+                hints.append(f"No rows in {fq} have {col} = '{val}'. Text comparisons are case-sensitive: "
+                             f"the data uses '{alt[0]}'. Re-run with that value before concluding the answer is 0.")  # fmt: skip
+            else:
+                n = cur.execute(f'SELECT count(DISTINCT "{col}") FROM {fq}').fetchone()[0]
+                sample = ""
+                if n <= 20:
+                    vals = [
+                        r[0]
+                        for r in cur.execute(
+                            f'SELECT DISTINCT CAST("{col}" AS VARCHAR) FROM {fq} ORDER BY 1'
+                        ).fetchall()
+                    ]
+                    sample = f" Valid values: {', '.join(map(str, vals))}."
+                hints.append(
+                    f"No rows in {fq} have {col} = '{val}'.{sample} Check the filter before concluding the answer is 0."
+                )
+        if len(hints) >= limit:
+            break
+    return hints
 
 
 def run_sql(
@@ -91,6 +191,11 @@ def run_sql(
     low = safe.lower()
     if any(t in low for t in ("fact_sales_daily", "sales_enriched", "store_day_status")):
         caveats += store_day_caveats(cur)
+    if _looks_empty(rows) and config.SQL_HINTS:
+        try:
+            caveats += filter_hints(cur, safe, allowed_schemas)
+        except Exception:  # a hint must never break the query result
+            pass
     return ToolResult(
         data={"columns": columns, "rows": rows, "row_count": len(rows), "truncated": truncated},
         caveats=caveats,

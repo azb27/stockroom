@@ -10,13 +10,14 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from stockroom.tools.anomalies import SCOPES, detect_anomalies
 from stockroom.tools.base import ToolError, ToolResult, jsonable
 from stockroom.tools.forecast import forecast_demand
 from stockroom.tools.reorder import draft_reorder
-from stockroom.tools.sql import MAX_ROWS, describe_data, run_sql
+from stockroom.tools.sql import MAX_ROWS, describe_data, describe_raw, run_sql
 from stockroom.tools.variance import GROUPS, explain_variance
 
 DATE = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$", "description": "YYYY-MM-DD"}
@@ -136,8 +137,15 @@ TOOLS: dict[str, Tool] = {
 }
 
 
-def call(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Run a tool by name. Always returns a JSON-safe dict; errors come back as {"error": ...}."""
+def call(name: str, args: dict[str, Any] | None = None, *, schema: str = "core") -> dict[str, Any]:
+    """Run a tool by name. Always returns a JSON-safe dict; errors come back as {"error": ...}.
+
+    `schema` is set by the adapter, never by the model (model arguments are checked against the tool
+    schema, which doesn't declare it). "raw" exists only for the eval ablation that measures what the
+    cleaning layer is worth: describe_data and run_sql then see raw.* and nothing else.
+    """
+    if schema not in ("core", "raw"):
+        return {"error": f"unknown schema {schema!r}"}
     args = args or {}
     tool = TOOLS.get(name)
     if tool is None:
@@ -150,8 +158,16 @@ def call(name: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     if missing:
         return {"error": f"missing required argument(s) {sorted(missing)} for {name}"}
     t0 = time.perf_counter()
+    fn = tool.fn
+    if schema == "raw":
+        if name == "describe_data":
+            fn = describe_raw
+        elif name == "run_sql":
+            fn = partial(run_sql, allowed_schemas=frozenset({"raw"}))
+        else:
+            return {"error": f"{name} is not available without the cleaned data layer"}
     try:
-        out = tool.fn(**args).to_dict()
+        out = fn(**args).to_dict()
     except ToolError as e:
         return {"error": str(e)}
     except Exception as e:

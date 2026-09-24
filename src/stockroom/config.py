@@ -37,3 +37,5 @@ MODEL = os.environ.get("STOCKROOM_MODEL", "claude-sonnet-5")
 CHEAP_MODEL = os.environ.get("STOCKROOM_CHEAP_MODEL", "claude-haiku-4-5-20251001")
 EFFORT = os.environ.get("STOCKROOM_EFFORT", "medium")  # low | medium | high | xhigh | max
 RUNS_DIR = ROOT / "runs"
+# empty-result filter hints in run_sql (added after the P5 eval found silent case-mismatch zeros)
+SQL_HINTS = os.environ.get("STOCKROOM_SQL_HINTS", "1") != "0"

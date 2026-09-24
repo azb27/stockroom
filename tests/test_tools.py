@@ -238,3 +238,41 @@ def test_variance_rejects_bad_input():
             },
         )["error"]
     )
+
+
+# ---- eval-only raw-data mode --------------------------------------------------------------------
+def test_raw_schema_mode_is_adapter_only_and_limited():
+    assert (
+        "unknown argument" in call("run_sql", {"query": "SELECT 1", "schema": "raw"})["error"]
+    )  # model can't
+    raw = call("run_sql", {"query": "SELECT count(*) FROM raw.stores"}, schema="raw")
+    assert raw["data"]["rows"] == [[4]]
+    assert (
+        "not accessible" in call("run_sql", {"query": "SELECT * FROM core.dim_store"}, schema="raw")["error"]
+    )
+    assert "raw.pos_sales_lines" in call("describe_data", {}, schema="raw")["data"]["tables"]
+    assert "not available" in call("detect_anomalies", {}, schema="raw")["error"]
+    assert "unknown schema" in call("describe_data", {}, schema="truth")["error"]
+
+
+# ---- empty-result hints (found by the P5 eval) ----------------------------------------------------
+def test_empty_result_flags_case_mismatch():
+    out = call(
+        "run_sql", {"query": "SELECT count(*) FROM core.dim_sku WHERE status = 'active' AND dept = 'FOODS_3'"}
+    )
+    assert out["data"]["rows"] == [[0]]
+    assert any("'ACTIVE'" in c and "case-sensitive" in c for c in out["caveats"])
+
+
+def test_empty_result_lists_valid_values_for_small_domains():
+    out = call("run_sql", {"query": "SELECT * FROM core.dim_sku WHERE dept = 'FOODS_9'"})
+    assert out["data"]["row_count"] == 0
+    assert any("FOODS_9" in c and "FOODS_3" in c for c in out["caveats"])
+
+
+def test_no_hint_when_filters_are_valid():
+    out = call(
+        "run_sql", {"query": "SELECT count(*) FROM core.dim_sku WHERE status = 'ACTIVE' AND dept = 'FOODS_3'"}
+    )
+    assert out["data"]["rows"][0][0] > 0
+    assert not any("case-sensitive" in c or "No rows in" in c for c in out["caveats"])
