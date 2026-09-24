@@ -15,7 +15,7 @@ uv run python -m stockroom.forecast.train       # backtest + final model + 28-da
 uv run python -m stockroom.approvals list       # PO drafts; approve/reject is human-only
 uv run pytest -q                               # tests (need data built)
 ```
-`make data`, `make forecast`, `make test`, `make lint` wrap these on macOS/Linux.
+`make data`, `make forecast`, `make test`, `make lint` wrap these on macOS/Linux. Install the secret guard once per clone: `ln -sf ../../scripts/pre-commit .git/hooks/pre-commit`. The API key lives in an untracked env file, never in the repo.
 
 ## Hard rules
 1. **Tools never touch `ground_truth.duckdb`.** Only `tests/` and `evals/` may attach it. If you are writing code under `src/stockroom/tools` or `src/stockroom/agent` and you type `TRUTH_DB`, stop.

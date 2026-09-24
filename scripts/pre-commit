@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Block commits that contain anything shaped like an Anthropic API key.
+# Install: ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+if git diff --cached -U0 --no-color | grep -E '^\+' | grep -qE 'sk-ant-[A-Za-z0-9_-]{20,}'; then
+  echo "pre-commit: blocked: staged changes contain what looks like an Anthropic API key (sk-ant-...)." >&2
+  echo "Remove it and keep keys in an untracked env file." >&2
+  exit 1
+fi
