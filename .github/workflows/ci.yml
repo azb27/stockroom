@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Cache M5 download
+        uses: actions/cache@v4
+        with:
+          path: data/m5
+          key: m5-${{ hashFiles('scripts/fetch_m5.py') }}
+      - run: pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check src tests scripts evals && ruff format --check src tests scripts evals
+      - name: Build data (ground truth -> messy warehouse -> cleaned layer)
+        run: python scripts/fetch_m5.py && python -m stockroom.data.pipeline
+      - name: Tests (no API key; forecast-dependent tests skip without a trained model)
+        run: pytest -q
+
+  eval-smoke:
+    # 20 questions on Haiku (~$0.25). Runs on PRs that touch the agent, tools or evals, when the repo has
+    # an ANTHROPIC_API_KEY secret. Fails if accuracy drops >10 pp below evals/baseline.json.
+    if: github.event_name != 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: changed
+        with:
+          filters: |
+            agent:
+              - 'src/**'
+              - 'evals/**'
+      - name: Skip (no relevant change or no API key)
+        if: steps.changed.outputs.agent != 'true' || env.ANTHROPIC_API_KEY == ''
+        run: echo "eval smoke skipped"
+      - uses: actions/setup-python@v5
+        if: steps.changed.outputs.agent == 'true' && env.ANTHROPIC_API_KEY != ''
+        with:
+          python-version: "3.11"
+          cache: pip
+      - uses: actions/cache@v4
+        if: steps.changed.outputs.agent == 'true' && env.ANTHROPIC_API_KEY != ''
+        with:
+          path: data/m5
+          key: m5-${{ hashFiles('scripts/fetch_m5.py') }}
+      - name: Smoke eval
+        if: steps.changed.outputs.agent == 'true' && env.ANTHROPIC_API_KEY != ''
+        run: |
+          pip install -e ".[dev]"
+          python scripts/fetch_m5.py && python -m stockroom.data.pipeline
+          python -m evals.run --config haiku_v2 --run-id ci_smoke --ids "$(python -m evals.smoke ids)" --budget 1
+          python -m evals.smoke check ci_smoke
