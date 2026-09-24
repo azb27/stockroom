@@ -2,7 +2,9 @@
 
 **An ops agent for a distributor's messy data: it answers questions, forecasts demand, flags stock-outs, and drafts purchase orders that a human approves. It's measured against 120 ground-truth questions with confidence intervals.**
 
-> Status: **Phase 4 of 8 complete** (data layer, tools, forecasting and reorder drafts, agent loop). Plan of record: [`SPEC.md`](SPEC.md). Live demo, eval table and demo video land in P5–P8.
+> Status: **Phase 5 of 8 complete** (data layer, tools, forecasting and reorder drafts, agent loop, eval). Plan of record: [`SPEC.md`](SPEC.md). MCP server, live demo and video land in P6–P8.
+
+**Headline:** Claude Sonnet 5 answers **120/120** ground-truth questions correctly for about 2¢ each. On the same questions without the cleaning layer it gets **63%**. [Full results →](docs/results/eval.md)
 
 ## Why this exists
 Most agent demos run on clean data. Real deployments fail on messy data: half-finished ERP migrations, units in the wrong field, files loaded twice, outages that look like zero sales. Stockroom is built like a forward-deployed engagement:
@@ -38,9 +40,11 @@ pip install -e ".[dev]"            # or: uv sync
 python scripts/fetch_m5.py         # ~325 MB from a public Hugging Face mirror of M5
 python -m stockroom.data.pipeline  # ~20 s: ground truth -> messy warehouse -> cleaned layer
 python -m stockroom.forecast.train # ~13 min on 2 cores: backtest, final model, 28-day forecasts
-pytest -q                          # 103 tests (no API key needed)
+pytest -q                          # 118 tests (no API key needed)
 python -m stockroom.approvals list # PO drafts waiting for a human
 python -m stockroom.agent --steps  # chat with the agent (needs ANTHROPIC_API_KEY)
+python -m evals.run --config sonnet_v2 --budget 5   # 120-question eval (~$2.50), resumable
+python -m evals.report             # rebuild docs/results/eval.md and the chart from stored runs (no API calls)
 ```
 
 ## Phase 2: the tools
@@ -98,8 +102,32 @@ A plain Anthropic Messages API loop (Claude Sonnet 5) over the six tools. There'
 
 Five questions prove the plumbing, not the accuracy. That's Phase 5's job.
 
+## Phase 5: the eval
+120 questions in four tiers: lookups, aggregations, multi-step, and traps (the outage day, a store that doesn't exist, "send the PO"). Answers come from `ground_truth.duckdb`, which the agent never sees, so cleaning mistakes count against it. Scoring is deterministic code on an `ANSWER:` line, with no LLM judge ([ADR 0005](docs/adr/0005-deterministic-scoring-templated-questions.md)). Every question gets a fresh agent.
+
+![accuracy by tier](docs/results/eval_accuracy.png)
+
+| Configuration | Accuracy [95% CI] | $ / question | Median latency |
+|---|---|---:|---:|
+| Claude Sonnet 5 | **100%** [100, 100] | $0.021 | 6.3 s |
+| Claude Haiku 4.5 | **96%** [92, 99] | $0.012 | 4.9 s |
+| Router (Haiku → Sonnet on failure signals) | 96% [92, 99] | $0.012 | 4.9 s |
+| Sonnet 5 on raw data (no cleaning layer) | **63%** [55, 72] | $0.029 | 15.1 s |
+
+**What the cleaning layer is worth:** on lookups and aggregations, the same model scores 100% with it and **60%** without it (44 questions it gets right only with cleaning, 0 the other way; p ≈ 10⁻¹³). On raw data it scored 0 of 6 on monthly revenue, 0 of 2 on the twice-loaded week and 0 of 3 on re-coded SKUs. In one trace it *noticed* a price keyed in cents and reported it anyway ([failure analysis](docs/results/eval_failure_analysis.md)).
+
+**The eval found a product bug.** Agents filtered `status = 'active'` (the data says `'ACTIVE'`), got nothing back, and confidently answered 0. `run_sql` now names the mismatch when a result is empty. Haiku went from 92% to 96%, and from 67% to 87% on multi-step questions. With one run per configuration that is p = 0.18: the right direction, not yet proven.
+
+**Honest limits:**
+- Sonnet at 100% means this eval can no longer separate it from a better agent.
+- The questions are templated around the injected problems, so this is not a general benchmark.
+- Haiku vs Sonnet (5–0) is not statistically significant, so the router adds cost and complexity for no measured gain here.
+- The eval had six bugs of its own, found by reading answers. They are logged in [`evals/CORRECTIONS.md`](evals/CORRECTIONS.md).
+
+CI runs lint, the data build and all tests on every push. On pull requests it also runs a 20-question Haiku smoke eval and fails if accuracy drops more than 10 points below [`evals/baseline.json`](evals/baseline.json).
+
 ## Roadmap
-**120-question eval with bootstrap CIs, model comparison, raw-vs-clean ablation** (P5) → MCP server and Claude Code skill (P6) → web UI with a PO approval queue (P7). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
+**MCP server and Claude Code skill** (P6) → web UI with a PO approval queue (P7) → ship (P8). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
 
 ## Out of scope
 Sending orders to suppliers, live ERP integration, auth/multi-tenancy, fine-tuning. The agent drafts; humans decide.
