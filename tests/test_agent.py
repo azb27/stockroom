@@ -180,6 +180,13 @@ def test_caveats_survive_truncation_of_huge_results():
     assert len(s) < MAX_RESULT_CHARS + 100 and s.index("MISSING DATA") < 100 and "truncated" in s
 
 
+def test_effort_only_sent_to_models_that_support_it():
+    client = FakeClient([resp([text("hi")], stop="end_turn")])
+    a = Agent(model="claude-haiku-4-5-20251001", effort="high", client=client, tool_caller=fake_tools)
+    a.ask("hi")
+    assert "output_config" not in client.requests[0] and a.effort == "n/a"
+
+
 def test_unknown_model_is_refused():
     with pytest.raises(ValueError):
         Agent(model="gpt-oops", client=FakeClient([]))

@@ -27,7 +27,7 @@ import anthropic
 
 from stockroom import config
 from stockroom.agent import tracing
-from stockroom.agent.pricing import Usage, check_model, cost_usd
+from stockroom.agent.pricing import EFFORT_MODELS, Usage, check_model, cost_usd
 from stockroom.agent.prompts import system_prompt
 from stockroom.tools import TOOLS, call
 
@@ -59,9 +59,10 @@ class Agent:
         client: Any = None,
         tool_caller: Callable[[str, dict[str, Any]], dict[str, Any]] = call,
         record: bool = True,
+        tool_names: list[str] | None = None,
     ) -> None:
         self.model = model or config.MODEL
-        self.effort = effort or config.EFFORT
+        self.effort = (effort or config.EFFORT) if (model or config.MODEL) in EFFORT_MODELS else "n/a"
         check_model(self.model)
         self.max_tool_calls, self.max_cost_usd, self.max_seconds = max_tool_calls, max_cost_usd, max_seconds
         self.max_tokens = max_tokens
@@ -70,7 +71,7 @@ class Agent:
         self.client = client
         self.tool_caller = tool_caller
         self.record = record
-        self.tools = [t.anthropic_spec() for t in TOOLS.values()]
+        self.tools = [t.anthropic_spec() for n, t in TOOLS.items() if tool_names is None or n in tool_names]
         self.messages: list[dict[str, Any]] = []
         self.usage = Usage()
         self.conversation_id = uuid.uuid4().hex[:12]
@@ -88,8 +89,9 @@ class Agent:
             tools=self.tools,
             messages=self.messages,
             cache_control={"type": "ephemeral"},  # automatic prefix caching across loop iterations
-            output_config={"effort": self.effort},
         )
+        if self.model in EFFORT_MODELS:
+            kwargs["output_config"] = {"effort": self.effort}
         if final:
             kwargs["tool_choice"] = {"type": "none"}
         return self.client.messages.create(**kwargs)

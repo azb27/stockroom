@@ -34,6 +34,10 @@ PRICES: dict[str, dict[str, float]] = {
 }
 
 
+# models that accept output_config.effort (adaptive thinking); others reject it with a 400
+EFFORT_MODELS = {"claude-sonnet-5", "claude-opus-5-5"}
+
+
 @dataclass
 class Usage:
     input: int = 0
