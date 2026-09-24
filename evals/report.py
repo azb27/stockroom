@@ -114,7 +114,7 @@ def chart(summ: dict[str, dict]) -> None:
     names = [n for n in ["sonnet", "haiku", "router", "sonnet_raw"] if n in summ]
     rows = ["overall", *TIERS]
     ylab = ["Overall (120)", *[TIER_NAMES[t] + " (30)" for t in TIERS]]
-    fig, ax = plt.subplots(figsize=(8.6, 4.6), dpi=160)
+    fig, ax = plt.subplots(figsize=(8.6, 5.2), dpi=160)
     fig.patch.set_facecolor("#fcfcfb")
     ax.set_facecolor("#fcfcfb")
     offs = np.linspace(0.27, -0.27, len(names))  # first series on top, matching legend order
@@ -137,7 +137,14 @@ def chart(summ: dict[str, dict]) -> None:
         sp.set_visible(False)
     ax.tick_params(colors="#52514e", labelsize=8, length=0)
     ax.axhline(len(rows) - 1 - 0.5, color="#c9c8c3", lw=0.8)
-    ax.legend(loc="center left", fontsize=8, frameon=False, labelcolor="#0b0b0b", borderaxespad=1.0)
+    ax.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.45, -0.14),
+        ncol=2,
+        fontsize=8,
+        frameon=False,
+        labelcolor="#0b0b0b",
+    )
     ax.set_title("Stockroom agent: 120 ground-truth questions", loc="left", fontsize=11, color="#0b0b0b")
     fig.tight_layout()
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
