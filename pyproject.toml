@@ -11,14 +11,14 @@ dependencies = [
   "sqlglot>=25",
   "lightgbm>=4.3",
   "anthropic>=1.8",
-  "mcp>=1.27",
+  "mcp>=1.27,<2",  # 2.x is a new major release (new deps, e.g. httpx2), not yet tested here
 ]
 
 [project.scripts]
 stockroom-mcp = "stockroom.mcp_server:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff==0.16.9"]  # pinned: new ruff releases add rules and broke CI twice
+dev = ["pytest>=8", "ruff==0.16.9", "httpx"]  # pinned: new ruff releases add rules and broke CI twice
 # added in later phases: fastapi (P7)
 
 [build-system]
