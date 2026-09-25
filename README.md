@@ -2,7 +2,7 @@
 
 **An ops agent for a distributor's messy data: it answers questions, forecasts demand, flags stock-outs, and drafts purchase orders that a human approves. It's measured against 120 ground-truth questions with confidence intervals.**
 
-> Status: **Phase 5 of 8 complete** (data layer, tools, forecasting and reorder drafts, agent loop, eval). Plan of record: [`SPEC.md`](SPEC.md). MCP server, live demo and video land in P6–P8.
+> Status: **Phase 6 of 8 complete** (data layer, tools, forecasting and reorder drafts, agent loop, eval, MCP server and Claude Code skill). Plan of record: [`SPEC.md`](SPEC.md). Web UI, live demo and video land in P7–P8.
 
 **Headline:** Claude Sonnet 5 answers **120/120** ground-truth questions correctly for about 2¢ each. On the same questions without the cleaning layer it gets **63%**. [Full results →](docs/results/eval.md)
 
@@ -40,9 +40,10 @@ pip install -e ".[dev]"            # or: uv sync
 python scripts/fetch_m5.py         # ~325 MB from a public Hugging Face mirror of M5
 python -m stockroom.data.pipeline  # ~20 s: ground truth -> messy warehouse -> cleaned layer
 python -m stockroom.forecast.train # ~13 min on 2 cores: backtest, final model, 28-day forecasts
-pytest -q                          # 118 tests (no API key needed)
+pytest -q                          # 141 tests (no API key needed)
 python -m stockroom.approvals list # PO drafts waiting for a human
 python -m stockroom.agent --steps  # chat with the agent (needs ANTHROPIC_API_KEY)
+claude                             # or use Claude Code: .mcp.json starts the Stockroom MCP server
 python -m evals.run --config sonnet_v2 --budget 5   # 120-question eval (~$2.50), resumable
 python -m evals.report             # rebuild docs/results/eval.md and the chart from stored runs (no API calls)
 ```
@@ -126,8 +127,39 @@ Five questions prove the plumbing, not the accuracy. That's Phase 5's job.
 
 CI runs lint, the data build and all tests on every push. On pull requests it also runs a 20-question Haiku smoke eval and fails if accuracy drops more than 10 points below [`evals/baseline.json`](evals/baseline.json).
 
+## Phase 6: the same tools in Claude Code and Claude Desktop
+`stockroom-mcp` serves the six tools over MCP: stdio for desktop clients, and streamable HTTP on 127.0.0.1. It is a thin adapter over the same registry the eval measured ([ADR 0006](docs/adr/0006-mcp-server-registry-driven-loopback-only.md)):
+- **Same schemas and results as the in-process agent.** Parity tests compare every tool's MCP result with a direct call, so the Phase 5 accuracy carries over.
+- **Same guards.** The SQL guard, the `core.*`-only rule and drafts-only ordering all apply. There is no approve or send tool. Undeclared arguments are rejected at the protocol layer.
+- **Honest annotations.** Five tools are marked read-only. `draft_reorder` is marked as a (non-destructive) write, so Claude Code asks before it runs.
+- **Caveats first** in every result, so a client that truncates long output keeps the "this day is unknown, not zero" warning.
+- **HTTP binds to loopback only,** with DNS-rebinding protection. Every call is logged to `runs/mcp/calls.jsonl` with the client's name.
+
+**Claude Code:** run `claude` in the repo. `.mcp.json` starts the server, and the [`stockroom-analyst`](.claude/skills/stockroom-analyst/SKILL.md) skill teaches the workflow and the mistakes the eval caught. Ask a question, or use `/stockroom-analyst <question>`.
+
+**Live check, 8/8 correct** ([transcript](docs/results/claude_code_session_p6.md), generated), $0.41 total. Eight eval questions were sent through headless Claude Code (`claude -p`) with its built-in file and shell tools switched off, so every answer had to come through the MCP server:
+- a SKU recoded mid-period
+- the week whose sales file was loaded twice
+- monthly revenue to the cent
+- a stock-out count
+- a variance driver
+- the outage day ("UNKNOWN")
+- a month containing the outage (flagged)
+- "place an order with the supplier" (declined)
+
+**Claude Desktop:** add this to `claude_desktop_config.json` (Settings → Developer → Edit Config), using your clone's path:
+```json
+{
+  "mcpServers": {
+    "stockroom": { "command": "/path/to/stockroom/.venv/bin/stockroom-mcp" }
+  }
+}
+```
+
+**A bug the server exposed:** DuckDB lets one process at a time hold a writable file. A long-running MCP server that had written a draft would lock the buyer out of `stockroom.approvals`, which is the human half of the workflow. `app.duckdb` is now opened per operation, and a test proves a second process can approve while the tool process is alive.
+
 ## Roadmap
-**MCP server and Claude Code skill** (P6) → web UI with a PO approval queue (P7) → ship (P8). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
+**Web UI with a PO approval queue** (P7) → ship (P8) → overnight replenishment job on the Claude Agent SDK (P9). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
 
 ## Out of scope
 Sending orders to suppliers, live ERP integration, auth/multi-tenancy, fine-tuning. The agent drafts; humans decide.
