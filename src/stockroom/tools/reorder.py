@@ -27,6 +27,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
+from stockroom import appdb
 from stockroom.appdb import app_session
 from stockroom.config import HORIZON_DAYS
 from stockroom.tools.base import ToolError, ToolResult, as_of, resolve_sku, warehouse
@@ -169,10 +170,11 @@ def draft_reorder(
             min_cases = int(g["min_order_cases"].iloc[0])
             below = int(g["order_cases"].sum()) < min_cases
             app.execute(
-                "INSERT INTO po_drafts VALUES (?, ?, 'agent', ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+                "INSERT INTO po_drafts VALUES (?, ?, ?, ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
                 [
                     did,
                     now,
+                    appdb.ACTOR.get(),
                     store,
                     sup,
                     len(g),

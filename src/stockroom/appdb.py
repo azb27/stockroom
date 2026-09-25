@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 import duckdb
@@ -18,6 +19,9 @@ from stockroom.config import APP_DB
 
 APP_PATH: Path = APP_DB  # tests point this at a temp file
 LOCK_TIMEOUT_S = 10.0
+# Who is drafting. "agent" for the CLI and evals; the web API sets "web:<session>" around a turn so each
+# visitor sees only their own drafts. A ContextVar so concurrent sessions never mix.
+ACTOR: ContextVar[str] = ContextVar("stockroom_actor", default="agent")
 _initialised: set[str] = set()
 _lock = threading.RLock()
 

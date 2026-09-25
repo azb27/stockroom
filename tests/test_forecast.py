@@ -267,3 +267,16 @@ def test_app_session_waits_for_a_briefly_locked_file(temp_app):
         assert con.execute("SELECT count(*) FROM po_drafts").fetchone() == (0,)
     holder.wait()
     assert time.monotonic() - t0 > 0.5  # it waited for the lock instead of failing
+
+
+@needs_forecast
+def test_drafts_record_who_drafted_them(temp_app):
+    call("draft_reorder", {"store": "CA_4", "dept": "HOBBIES_2"})
+    token = appdb.ACTOR.set("web:abc123")
+    try:
+        call("draft_reorder", {"store": "CA_4", "dept": "HOBBIES_2"})
+    finally:
+        appdb.ACTOR.reset(token)
+    with appdb.app_session() as con:
+        who = sorted({r for (r,) in con.execute("SELECT created_by FROM po_drafts").fetchall()})
+    assert who == ["agent", "web:abc123"]

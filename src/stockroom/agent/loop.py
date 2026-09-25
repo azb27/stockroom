@@ -60,6 +60,7 @@ class Agent:
         tool_caller: Callable[[str, dict[str, Any]], dict[str, Any]] = call,
         record: bool = True,
         tool_names: list[str] | None = None,
+        on_event: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.model = model or config.MODEL
         self.effort = (effort or config.EFFORT) if (model or config.MODEL) in EFFORT_MODELS else "n/a"
@@ -76,6 +77,14 @@ class Agent:
         self.usage = Usage()
         self.conversation_id = uuid.uuid4().hex[:12]
         self.turn = 0
+        self.on_event = on_event  # live progress for UIs: tool_call / tool_result / limit events
+
+    def _emit(self, event: dict[str, Any]) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:  # a broken listener must never break the turn
+                pass
 
     @property
     def cost_usd(self) -> float:
@@ -134,11 +143,17 @@ class Agent:
                     }
                     ms = 0.0
                 else:
+                    self._emit(
+                        {"type": "tool_call", "id": b.id, "name": b.name, "input": dict(b.input or {})}
+                    )
                     s0 = time.perf_counter()
                     out = self.tool_caller(b.name, dict(b.input or {}))
                     ms = (time.perf_counter() - s0) * 1000
                     trace.steps.append(
                         tracing.Step(b.name, dict(b.input or {}), out, round(ms, 1), "error" in out)
+                    )
+                    self._emit(
+                        {"type": "tool_result", "id": b.id, "name": b.name, "ms": round(ms, 1), "output": out}
                     )
                 results.append(
                     {"type": "tool_result", "tool_use_id": b.id, "content": _tool_result_text(out),
@@ -155,6 +170,7 @@ class Agent:
             if reasons:
                 final = True
                 trace.limits_hit += reasons
+                self._emit({"type": "limit", "reasons": reasons})
                 results.append(
                     {"type": "text", "text": f"[System: {', '.join(reasons)} reached. No more tools. Answer now "
                      "with what you have and say plainly what you could not check.]"}

@@ -197,3 +197,24 @@ def test_trace_json_is_serialisable():
     client = FakeClient([resp([tool_use("describe_data", {}, 1)]), resp([text("x")], stop="end_turn")])
     t = Agent(model="claude-sonnet-5", client=client, tool_caller=fake_tools).ask("q")
     json.dumps(t.to_json(), default=str)
+
+
+def test_events_stream_tool_progress_and_a_broken_listener_is_harmless():
+    events: list[dict[str, Any]] = []
+    client = FakeClient([
+        resp([tool_use("describe_data", {}, 1), tool_use("run_sql", {"query": "SELECT 1"}, 2)]),
+        resp([text("ok")], stop="end_turn"),
+    ])  # fmt: skip
+    Agent(model="claude-sonnet-5", client=client, tool_caller=fake_tools, on_event=events.append).ask("q")
+    assert [(e["type"], e.get("name")) for e in events] == [
+        ("tool_call", "describe_data"), ("tool_result", "describe_data"),
+        ("tool_call", "run_sql"), ("tool_result", "run_sql"),
+    ]  # fmt: skip
+    assert events[1]["output"]["caveats"] == ["caveat from describe_data"]
+
+    def boom(_):
+        raise RuntimeError("listener died")
+
+    client = FakeClient([resp([tool_use("describe_data", {}, 1)]), resp([text("still ok")], stop="end_turn")])
+    t = Agent(model="claude-sonnet-5", client=client, tool_caller=fake_tools, on_event=boom).ask("q")
+    assert t.answer == "still ok"
