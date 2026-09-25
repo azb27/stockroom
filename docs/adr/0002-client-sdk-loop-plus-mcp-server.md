@@ -1,6 +1,6 @@
 # ADR 0002: One tool library, exposed via an MCP server and a hand-written Client SDK loop
 
-**Status:** accepted · **Phase:** P2/P4/P6
+**Status:** accepted · **Phase:** P2/P4/P6 (P6 implementation details: ADR 0006)
 
 ## Context
 Three plausible ways to run the agent:
