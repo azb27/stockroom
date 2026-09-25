@@ -19,7 +19,7 @@ DIRT_MANIFEST = DATA_DIR / "dirt_manifest.json"
 # forecast.duckdb -> batch-scored forecasts + model metadata (written by training, read-only to tools)
 # app.duckdb      -> PO drafts and traces (the only file the running app writes)
 FORECAST_DB = DATA_DIR / "forecast.duckdb"
-APP_DB = DATA_DIR / "app.duckdb"
+APP_DB = Path(os.environ.get("STOCKROOM_APP_DB", DATA_DIR / "app.duckdb"))  # override isolates demo runs
 MODEL_DIR = ROOT / "models"
 
 M5_HF_REPO = "denephew/M5_Forecasting"
