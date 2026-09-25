@@ -1,0 +1,16 @@
+# Only what the image needs; the answer key and raw inputs never enter the build context.
+*
+!Dockerfile
+!pyproject.toml
+!src/
+!web/package.json
+!web/package-lock.json
+!web/next.config.mjs
+!web/tsconfig.json
+!web/app/
+!web/components/
+!web/lib/
+!docs/results/eval_summary.json
+!data/warehouse.duckdb
+!data/forecast.duckdb
+**/__pycache__
