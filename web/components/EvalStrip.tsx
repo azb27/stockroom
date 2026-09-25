@@ -36,14 +36,12 @@ export default function EvalStrip({ meta }: { meta: Meta }) {
       )}
       <div className="tile">
         <div className="label">Demo budget today</div>
-        <div className="value">
-          ${meta.spent_today_usd.toFixed(2)} <span className="sub">of ${meta.daily_budget_usd.toFixed(2)}</span>
-        </div>
+        <div className="value">${meta.spent_today_usd.toFixed(2)}</div>
         <div className="meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(used * 100)} aria-label="Share of today's demo budget used">
           <span style={{ width: `${used * 100}%` }} />
         </div>
         <div className="sub">
-          {meta.questions_per_hour} questions/hour per visitor; resets 00:00 UTC
+          of ${meta.daily_budget_usd.toFixed(2)} a day; {meta.questions_per_hour} questions/hour per visitor; resets 00:00 UTC
         </div>
       </div>
     </section>

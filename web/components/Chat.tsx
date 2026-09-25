@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { type Answer, type Meta, streamChat } from "@/lib/api";
 import Trace, { type Step } from "./Trace";
 
@@ -9,7 +10,7 @@ type Turn = { question: string; steps: Step[]; answer?: Answer; error?: string; 
 
 function summary(t: Turn): string {
   const n = t.steps.length;
-  const calls = `${n} tool call${n === 1 ? "" : "s"}`;
+  const calls = n ? `${n} tool call${n === 1 ? "" : "s"}` : "No tool calls (used earlier results in this chat)";
   if (t.running) return n ? `Working… ${calls}` : "Thinking…";
   if (!t.answer) return calls;
   return `${calls} · ${t.answer.latency_s.toFixed(1)} s · $${t.answer.cost_usd.toFixed(3)}`;
@@ -119,7 +120,7 @@ export default function Chat({ meta, onDrafted, onSpent }: { meta: Meta; onDraft
               <Trace steps={t.steps} running={t.running} summary={summary(t)} />
               {t.answer && (
                 <div className="answer">
-                  <ReactMarkdown>{t.answer.text}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{t.answer.text}</ReactMarkdown>
                   {t.answer.limits_hit.length > 0 && (
                     <div className="meta-line">Stopped early: {t.answer.limits_hit.join(", ")}</div>
                   )}

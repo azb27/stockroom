@@ -50,7 +50,7 @@ function Result({ r }: { r: ToolResult }) {
 }
 
 export default function Trace({ steps, running, summary }: { steps: Step[]; running: boolean; summary: string }) {
-  if (steps.length === 0 && !running) return null;
+  if (steps.length === 0 && !running) return <div className="meta-line">{summary}</div>;
   return (
     <details className="trace" open={running}>
       <summary>

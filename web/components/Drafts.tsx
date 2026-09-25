@@ -31,7 +31,7 @@ function Lines({ lines }: { lines: DraftLine[] }) {
           <tr>
             <th>SKU</th>
             <th title="Units on hand today">On hand</th>
-            <th title="Forecast demand over lead time + review period">Forecast</th>
+            <th title="Forecast demand over lead time + review period">Fcst</th>
             <th>Cases</th>
             <th>Cost</th>
           </tr>
