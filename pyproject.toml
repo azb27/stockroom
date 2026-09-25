@@ -11,11 +11,15 @@ dependencies = [
   "sqlglot>=25",
   "lightgbm>=4.3",
   "anthropic>=1.8",
+  "mcp>=1.27",
 ]
+
+[project.scripts]
+stockroom-mcp = "stockroom.mcp_server:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.14"]
-# added in later phases: mcp (P6), fastapi+uvicorn (P7)
+# added in later phases: fastapi (P7)
 
 [build-system]
 requires = ["hatchling"]
