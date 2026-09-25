@@ -7,6 +7,9 @@ CLI, later the UI) may change a draft's status. There is deliberately no tool fo
 from __future__ import annotations
 
 import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -14,8 +17,9 @@ import duckdb
 from stockroom.config import APP_DB
 
 APP_PATH: Path = APP_DB  # tests point this at a temp file
-_conns: dict[str, duckdb.DuckDBPyConnection] = {}
-_lock = threading.Lock()
+LOCK_TIMEOUT_S = 10.0
+_initialised: set[str] = set()
+_lock = threading.RLock()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS po_drafts (
@@ -45,19 +49,38 @@ CREATE TABLE IF NOT EXISTS po_draft_lines (
 """
 
 
-def app_db() -> duckdb.DuckDBPyConnection:
+@contextmanager
+def app_session(timeout_s: float = LOCK_TIMEOUT_S) -> Iterator[duckdb.DuckDBPyConnection]:
+    """Open app.duckdb for one unit of work, then close it.
+
+    DuckDB lets only one process hold a writable file. A long-lived process (the MCP server, later the
+    web API) that kept a connection open would lock out `stockroom.approvals`, the human side of the
+    workflow. So every write opens, works and closes; a busy file is retried for up to `timeout_s`.
+    """
     key = str(APP_PATH)
     with _lock:
-        if key not in _conns:
-            APP_PATH.parent.mkdir(parents=True, exist_ok=True)
-            con = duckdb.connect(key, config={"enable_external_access": False})
-            con.execute(SCHEMA)
-            _conns[key] = con
-        return _conns[key]
+        deadline = time.monotonic() + timeout_s
+        delay = 0.05
+        while True:
+            try:
+                APP_PATH.parent.mkdir(parents=True, exist_ok=True)
+                con = duckdb.connect(key, config={"enable_external_access": False})
+                break
+            except duckdb.IOException as e:
+                if "lock" not in str(e).lower() or time.monotonic() > deadline:
+                    raise
+                time.sleep(delay)
+                delay = min(delay * 2, 0.5)
+        try:
+            if key not in _initialised:
+                con.execute(SCHEMA)
+                _initialised.add(key)
+            yield con
+        finally:
+            con.close()
 
 
 def close_all() -> None:
+    """Forget which files have their schema created (tests point APP_PATH at fresh files)."""
     with _lock:
-        for c in _conns.values():
-            c.close()
-        _conns.clear()
+        _initialised.clear()

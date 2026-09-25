@@ -12,7 +12,7 @@ import argparse
 
 import pandas as pd
 
-from stockroom.appdb import app_db
+from stockroom.appdb import app_session
 
 DECISIONS = {"approve": "APPROVED", "reject": "REJECTED"}
 
@@ -27,7 +27,8 @@ def list_drafts(status: str | None = None) -> pd.DataFrame:
     if status:
         q += " WHERE status = ?"
         params.append(status)
-    return app_db().cursor().execute(q + " ORDER BY created_at DESC", params).df()
+    with app_session() as con:
+        return con.execute(q + " ORDER BY created_at DESC", params).df()
 
 
 def decide(draft_id: str, decision: str, by: str, note: str | None = None) -> None:
@@ -37,17 +38,17 @@ def decide(draft_id: str, decision: str, by: str, note: str | None = None) -> No
         raise ApprovalError("a named person must make the decision (--by)")
     if decision == "reject" and not note:
         raise ApprovalError("a rejection needs a reason (--note)")
-    cur = app_db().cursor()
-    row = cur.execute("SELECT status FROM po_drafts WHERE draft_id = ?", [draft_id]).fetchone()
-    if row is None:
-        raise ApprovalError(f"no draft {draft_id}")
-    if row[0] != "PENDING_APPROVAL":
-        raise ApprovalError(f"draft {draft_id} is already {row[0]}")
-    cur.execute(
-        """UPDATE po_drafts SET status = ?, decided_at = now(), decided_by = ?, decision_note = ?
-           WHERE draft_id = ? AND status = 'PENDING_APPROVAL'""",
-        [DECISIONS[decision], by.strip(), note, draft_id],
-    )
+    with app_session() as cur:
+        row = cur.execute("SELECT status FROM po_drafts WHERE draft_id = ?", [draft_id]).fetchone()
+        if row is None:
+            raise ApprovalError(f"no draft {draft_id}")
+        if row[0] != "PENDING_APPROVAL":
+            raise ApprovalError(f"draft {draft_id} is already {row[0]}")
+        cur.execute(
+            """UPDATE po_drafts SET status = ?, decided_at = now(), decided_by = ?, decision_note = ?
+               WHERE draft_id = ? AND status = 'PENDING_APPROVAL'""",
+            [DECISIONS[decision], by.strip(), note, draft_id],
+        )
 
 
 def main() -> None:
@@ -67,13 +68,11 @@ def main() -> None:
     if a.cmd == "list":
         print(list_drafts(a.status).to_string(index=False))
     elif a.cmd == "show":
-        cur = app_db().cursor()
-        print(cur.execute("SELECT * FROM po_drafts WHERE draft_id = ?", [a.draft_id]).df().T.to_string())
-        print(
-            cur.execute("SELECT * FROM po_draft_lines WHERE draft_id = ?", [a.draft_id])
-            .df()
-            .to_string(index=False)
-        )
+        with app_session() as cur:
+            head = cur.execute("SELECT * FROM po_drafts WHERE draft_id = ?", [a.draft_id]).df()
+            lines = cur.execute("SELECT * FROM po_draft_lines WHERE draft_id = ?", [a.draft_id]).df()
+        print(head.T.to_string())
+        print(lines.to_string(index=False))
     else:
         decide(a.draft_id, a.cmd, a.by, a.note)
         print(f"{a.draft_id}: {DECISIONS[a.cmd]} by {a.by}")

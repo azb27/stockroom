@@ -5,6 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import math
 import shutil
+import subprocess
+import sys
+import time
 
 import duckdb
 import numpy as np
@@ -226,3 +229,41 @@ def test_only_a_named_human_can_decide(temp_app):
     assert list_drafts("APPROVED")["draft_id"].tolist() == [did]
     with pytest.raises(ApprovalError):
         decide(did, "reject", by="buyer", note="changed my mind")  # already decided
+
+
+# ---- app.duckdb is never held open (found while building the P6 MCP server) ----------------------------
+def _in_subprocess(code: str, path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-c", f"import duckdb; con = duckdb.connect({str(path)!r}); {code}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+@needs_forecast
+def test_a_second_process_can_approve_while_a_tool_process_is_alive(temp_app):
+    """A long-lived tool process (MCP server, web API) must not lock out the human approvals CLI."""
+    out = call("draft_reorder", {"store": "CA_4", "dept": "HOBBIES_2"})
+    did = out["data"]["drafts"][0]["draft_id"]
+    r = _in_subprocess(
+        f"con.execute(\"UPDATE po_drafts SET status = 'APPROVED' WHERE draft_id = '{did}'\")", appdb.APP_PATH
+    )
+    assert r.returncode == 0, r.stderr
+    assert list_drafts("APPROVED")["draft_id"].tolist() == [did]
+
+
+def test_app_session_waits_for_a_briefly_locked_file(temp_app):
+    with appdb.app_session():
+        pass  # create the file and schema
+    holder = subprocess.Popen(
+        [sys.executable, "-c", f"import duckdb, time; c = duckdb.connect({str(appdb.APP_PATH)!r}); "
+         "print('locked', flush=True); time.sleep(1.5)"],
+        stdout=subprocess.PIPE, text=True,
+    )  # fmt: skip
+    assert holder.stdout.readline().strip() == "locked"
+    t0 = time.monotonic()
+    with appdb.app_session() as con:
+        assert con.execute("SELECT count(*) FROM po_drafts").fetchone() == (0,)
+    holder.wait()
+    assert time.monotonic() - t0 > 0.5  # it waited for the lock instead of failing

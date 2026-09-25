@@ -115,7 +115,8 @@ def main() -> None:
         )
         time.sleep(1)
 
-    drafts = appdb.app_db().cursor().execute("SELECT status, count(*) FROM po_drafts GROUP BY 1").fetchall()
+    with appdb.app_session() as con:
+        drafts = con.execute("SELECT status, count(*) FROM po_drafts GROUP BY 1").fetchall()
     passed = sum(r[4] for r in rows)
     total_cost = sum(r[3].cost_usd for r in rows)
     lines = [

@@ -87,7 +87,8 @@ def test_simple_turn_answers_traces_and_forwards_caveats():
     result = client.requests[1]["messages"][-1]["content"][0]
     assert result["type"] == "tool_result" and "caveat from describe_data" in result["content"]
     assert_well_formed(a.messages)
-    row = appdb.app_db().cursor().execute("SELECT turn, tool_calls, answer FROM traces").fetchall()
+    with appdb.app_session() as con:
+        row = con.execute("SELECT turn, tool_calls, answer FROM traces").fetchall()
     assert row == [(1, 1, "There are 4 stores.")]
     assert list((config.RUNS_DIR / "traces").glob("*.jsonl"))
 

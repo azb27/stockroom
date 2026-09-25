@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from stockroom import config
-from stockroom.appdb import app_db
+from stockroom.appdb import app_session
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS traces (
@@ -61,16 +61,16 @@ class TurnTrace:
 
 
 def record(t: TurnTrace, jsonl: bool = True) -> None:
-    cur = app_db().cursor()
-    cur.execute(SCHEMA)
-    cur.execute(
-        "INSERT INTO traces VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-            t.conversation_id, t.turn, t.started_at, t.model, t.effort, t.question, t.answer,
-            t.stop_reason, t.tool_calls, json.dumps([asdict(s) for s in t.steps], default=str),
-            json.dumps(t.usage), t.cost_usd, t.conversation_cost_usd, t.latency_s, json.dumps(t.limits_hit),
-        ],
-    )  # fmt: skip
+    with app_session() as cur:
+        cur.execute(SCHEMA)
+        cur.execute(
+            "INSERT INTO traces VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                t.conversation_id, t.turn, t.started_at, t.model, t.effort, t.question, t.answer,
+                t.stop_reason, t.tool_calls, json.dumps([asdict(s) for s in t.steps], default=str),
+                json.dumps(t.usage), t.cost_usd, t.conversation_cost_usd, t.latency_s, json.dumps(t.limits_hit),
+            ],
+        )  # fmt: skip
     if jsonl:
         path = config.RUNS_DIR / "traces" / f"{t.started_at:%Y-%m-%d}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)

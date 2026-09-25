@@ -27,7 +27,7 @@ from statistics import NormalDist
 import numpy as np
 import pandas as pd
 
-from stockroom.appdb import app_db
+from stockroom.appdb import app_session
 from stockroom.config import HORIZON_DAYS
 from stockroom.tools.base import ToolError, ToolResult, as_of, resolve_sku, warehouse
 from stockroom.tools.forecast import Z80, load_forecast, model_meta
@@ -152,7 +152,6 @@ def draft_reorder(
     df = pd.DataFrame(lines)
     meta = model_meta()
     now = dt.datetime.now()
-    app = app_db().cursor()
     drafts = []
     params_json = json.dumps(
         {
@@ -163,50 +162,54 @@ def draft_reorder(
             "service_level": service_level,
         }
     )
-    for sup, g in df.groupby("supplier_id"):
-        did = f"PO-{store}-{sup}-{uuid.uuid4().hex[:6].upper()}"
-        min_cases = int(g["min_order_cases"].iloc[0])
-        below = int(g["order_cases"].sum()) < min_cases
-        app.execute(
-            "INSERT INTO po_drafts VALUES (?, ?, 'agent', ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
-            [
-                did,
-                now,
-                store,
-                sup,
-                len(g),
-                int(g["order_cases"].sum()),
-                int(g["order_units"].sum()),
-                float(g["est_cost"].sum()),
-                below,
-                meta.get("model_version"),
-                params_json,
-            ],
-        )
-        ln = g.drop(columns=["supplier_id", "min_order_cases"]).assign(draft_id=did)
-        app.register("_ln", ln)
-        app.execute(
-            """INSERT INTO po_draft_lines SELECT draft_id, sku, on_hand, on_order, lead_time_days, review_days,
-               forecast_units, safety_units, target_units, case_pack, case_pack_imputed, order_cases,
-               order_units, unit_cost, est_cost FROM _ln"""
-        )
-        app.unregister("_ln")
-        drafts.append(
-            {
-                "draft_id": did,
-                "supplier_id": sup,
-                "lines": len(g),
-                "cases": int(g["order_cases"].sum()),
-                "est_cost": round(float(g["est_cost"].sum()), 2),
-                "supplier_min_cases": min_cases,
-                "below_supplier_minimum": below,
-            }
-        )
-        if below:
-            caveats.append(
-                f"{did}: {int(g['order_cases'].sum())} cases is below {sup}'s minimum of {min_cases}. "
-                "The buyer should add lines or hold the order; the draft was not inflated."
+    with app_session() as app:
+        app.execute("BEGIN TRANSACTION")  # all of a call's drafts land, or none do
+        for sup, g in df.groupby("supplier_id"):
+            did = f"PO-{store}-{sup}-{uuid.uuid4().hex[:6].upper()}"
+            min_cases = int(g["min_order_cases"].iloc[0])
+            below = int(g["order_cases"].sum()) < min_cases
+            app.execute(
+                "INSERT INTO po_drafts VALUES (?, ?, 'agent', ?, ?, 'PENDING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+                [
+                    did,
+                    now,
+                    store,
+                    sup,
+                    len(g),
+                    int(g["order_cases"].sum()),
+                    int(g["order_units"].sum()),
+                    float(g["est_cost"].sum()),
+                    below,
+                    meta.get("model_version"),
+                    params_json,
+                ],
             )
+            ln = g.drop(columns=["supplier_id", "min_order_cases"]).assign(draft_id=did)
+            app.register("_ln", ln)
+            app.execute(
+                """INSERT INTO po_draft_lines SELECT draft_id, sku, on_hand, on_order, lead_time_days, review_days,
+                   forecast_units, safety_units, target_units, case_pack, case_pack_imputed, order_cases,
+                   order_units, unit_cost, est_cost FROM _ln"""
+            )
+            app.unregister("_ln")
+            drafts.append(
+                {
+                    "draft_id": did,
+                    "supplier_id": sup,
+                    "lines": len(g),
+                    "cases": int(g["order_cases"].sum()),
+                    "est_cost": round(float(g["est_cost"].sum()), 2),
+                    "supplier_min_cases": min_cases,
+                    "below_supplier_minimum": below,
+                }
+            )
+            if below:
+                caveats.append(
+                    f"{did}: {int(g['order_cases'].sum())} cases is below {sup}'s minimum of {min_cases}. "
+                    "The buyer should add lines or hold the order; the draft was not inflated."
+                )
+        app.execute("COMMIT")
+
     imputed = df.loc[df["case_pack_imputed"], "sku"].tolist()
     if imputed:
         caveats.append(
