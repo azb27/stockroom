@@ -18,7 +18,7 @@ dependencies = [
 stockroom-mcp = "stockroom.mcp_server:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.14"]
+dev = ["pytest>=8", "ruff==0.16.9"]  # pinned: new ruff releases add rules and broke CI twice
 # added in later phases: fastapi (P7)
 
 [build-system]

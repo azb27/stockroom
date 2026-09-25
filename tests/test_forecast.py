@@ -257,8 +257,8 @@ def test_app_session_waits_for_a_briefly_locked_file(temp_app):
     with appdb.app_session():
         pass  # create the file and schema
     holder = subprocess.Popen(
-        [sys.executable, "-c", f"import duckdb, time; c = duckdb.connect({str(appdb.APP_PATH)!r}); "
-         "print('locked', flush=True); time.sleep(1.5)"],
+        [sys.executable, "-c", (f"import duckdb, time; c = duckdb.connect({str(appdb.APP_PATH)!r}); "
+                                "print('locked', flush=True); time.sleep(1.5)")],
         stdout=subprocess.PIPE, text=True,
     )  # fmt: skip
     assert holder.stdout.readline().strip() == "locked"
