@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "stockroom": {
+      "type": "stdio",
+      "command": "stockroom-mcp",
+      "args": []
+    }
+  }
+}

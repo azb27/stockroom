@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 
 import httpx
 import pytest
@@ -215,3 +216,19 @@ def test_http_refuses_to_bind_beyond_loopback():
         mcp_server.main(["--http", "--host", "0.0.0.0"])
     assert mcp_server.is_loopback("127.0.0.1") and mcp_server.is_loopback("::1")
     assert not mcp_server.is_loopback("192.168.1.10")
+
+
+# ---- the Claude Code wiring ------------------------------------------------------------------------------
+def test_mcp_json_launches_the_declared_entry_point():
+    servers = json.loads((config.ROOT / ".mcp.json").read_text())["mcpServers"]
+    scripts = tomllib.loads((config.ROOT / "pyproject.toml").read_text())["project"]["scripts"]
+    assert servers["stockroom"]["command"] in scripts
+
+
+def test_skill_preapproves_only_read_only_stockroom_tools():
+    text = (config.ROOT / ".claude" / "skills" / "stockroom-analyst" / "SKILL.md").read_text()
+    front = text.split("---")[1]
+    allowed = next(line for line in front.splitlines() if line.startswith("allowed-tools:"))
+    tools = {t.strip() for t in allowed.split(":", 1)[1].split(",")}
+    assert tools == {f"mcp__stockroom__{n}" for n in TOOLS if n not in mcp_server.WRITES}
+    assert "name: stockroom-analyst" in front and "description:" in front
