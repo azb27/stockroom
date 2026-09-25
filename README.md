@@ -40,9 +40,10 @@ pip install -e ".[dev]"            # or: uv sync
 python scripts/fetch_m5.py         # ~325 MB from a public Hugging Face mirror of M5
 python -m stockroom.data.pipeline  # ~20 s: ground truth -> messy warehouse -> cleaned layer
 python -m stockroom.forecast.train # ~13 min on 2 cores: backtest, final model, 28-day forecasts
-pytest -q                          # 141 tests (no API key needed)
+pytest -q                          # 158 tests (no API key needed)
 python -m stockroom.approvals list # PO drafts waiting for a human
 python -m stockroom.agent --steps  # chat with the agent (needs ANTHROPIC_API_KEY)
+make demo                          # web UI + API on http://127.0.0.1:7860 (builds the Next.js app first)
 claude                             # or use Claude Code: .mcp.json starts the Stockroom MCP server
 python -m evals.run --config sonnet_v2 --budget 5   # 120-question eval (~$2.50), resumable
 python -m evals.report             # rebuild docs/results/eval.md and the chart from stored runs (no API calls)
@@ -157,6 +158,25 @@ CI runs lint, the data build and all tests on every push. On pull requests it al
 ```
 
 **A bug the server exposed:** DuckDB lets one process at a time hold a writable file. A long-running MCP server that had written a draft would lock the buyer out of `stockroom.approvals`, which is the human half of the workflow. `app.duckdb` is now opened per operation, and a test proves a second process can approve while the tool process is alive.
+
+## Phase 7: the web demo
+![Stockroom web demo](docs/images/web_demo.png)
+
+A chat with a live **tool trace** and a **PO approval queue**, in one container ([ADR 0007](docs/adr/0007-one-container-demo-on-hf-spaces.md)):
+- **FastAPI** streams each tool call to the page as server-sent events. You see the SQL, the caveats, a preview of the result and the timing while the agent works.
+- **Next.js** (React + TypeScript), built to static files and served by the API, so the demo is one URL.
+- **Approval is a human action.** The agent only drafts. Approving or rejecting takes a named person, on a separate route the agent has no way to reach. Each browser tab sees only its own drafts.
+- **Spend guards fail closed:**
+  - a daily API budget ($0.50)
+  - 10 questions an hour per visitor
+  - $0.10 per conversation
+  - 2 agent runs at a time
+  - When the budget is spent, chat turns off until 00:00 UTC and the page shows the recorded eval results instead.
+- **The image carries the cleaned warehouse and forecasts, never the eval's answer key.** The Dockerfile checks for it, and the deploy script refuses to upload it.
+
+The screenshots come from `scripts/screenshot_demo.py`, driving the real app (Docker image, live model) in headless Chromium.
+
+In the screenshot, the agent guesses a column name (`store_id`), gets the SQL error back as a tool result, reads the schema and answers correctly: the outage day is **unknown, not zero**.
 
 ## Roadmap
 **Web UI with a PO approval queue** (P7) → ship (P8) → overnight replenishment job on the Claude Agent SDK (P9). Details in [`SPEC.md`](SPEC.md) and [`docs/adr/`](docs/adr).
