@@ -24,6 +24,7 @@ from stockroom.stats import mcnemar_exact
 RUNS = config.RUNS_DIR / "evals"
 OUT_MD = config.ROOT / "docs" / "results" / "eval.md"
 OUT_PNG = config.ROOT / "docs" / "results" / "eval_accuracy.png"
+OUT_JSON = config.ROOT / "docs" / "results" / "eval_summary.json"  # the web demo's headline numbers
 TIERS = ["T1", "T2", "T3", "T4"]
 TIER_NAMES = {"T1": "T1 Lookup", "T2": "T2 Aggregation", "T3": "T3 Multi-step", "T4": "T4 Traps"}
 LABELS = {
@@ -150,6 +151,28 @@ def chart(summ: dict[str, dict]) -> None:
     OUT_PNG.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUT_PNG, facecolor=fig.get_facecolor())
     plt.close(fig)
+
+
+def write_summary_json(summ: dict[str, dict], order: list[str]) -> None:
+    def ci(t: tuple[float, float, float]) -> dict[str, float]:
+        return {"acc": round(t[0] * 100, 1), "lo": round(t[1] * 100, 1), "hi": round(t[2] * 100, 1)}
+
+    out = {
+        "generated_by": "python -m evals.report",
+        "n_questions": summ[order[0]]["n"],
+        "configs": {
+            n: {
+                "label": LABELS[n],
+                "overall": ci(summ[n]["overall"]),
+                "T1+T2": ci(summ[n]["T1+T2"]),
+                **{t: ci(summ[n][t]) for t in TIERS},
+                "cost_per_q_usd": round(summ[n]["cost_per_q"], 4),
+                "p50_latency_s": round(summ[n]["p50"], 1),
+            }
+            for n in order
+        },
+    }
+    OUT_JSON.write_text(json.dumps(out, indent=2) + "\n")
 
 
 def pct(t: tuple[float, float, float]) -> str:
@@ -312,7 +335,8 @@ def main() -> None:
         ),
     ]
     OUT_MD.write_text("\n".join(L) + "\n")
-    print(f"wrote {OUT_MD} and {OUT_PNG}")
+    write_summary_json(summ, order)
+    print(f"wrote {OUT_MD}, {OUT_PNG} and {OUT_JSON}")
     for n in order:
         print(f"{LABELS[n]:42} overall {summ[n]['overall'][0]:.1%}  ${summ[n]['cost_total']:.2f}")
 
