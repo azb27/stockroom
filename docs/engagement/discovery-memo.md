@@ -46,3 +46,7 @@ Christmas (2014-12-25, 2015-12-25) shows near-zero sales at every store. That's 
 2. Zero cases of the agent reporting a missing day as zero sales. *Met in P5: 9 questions touch the outage days, and every cleaned-layer run (4 runs, 36 answers) flagged them as unknown.*
 3. Buyer approves or edits every PO. No autonomous ordering.
 4. Forecast beats their current method (same-weekday average of the last 4 weeks) on WAPE. *Met in the P3 backtest: 73.2% vs 76.8% at SKU level, 9.2% vs 9.9% at store-dept level. Slow sellers are a tie (see `docs/results/forecast_backtest.md`).*
+
+## Next
+- How to operate it: [`runbook.md`](runbook.md)
+- What we would do in week 2, and what we need from Larkspur: [`week-2-plan.md`](week-2-plan.md)
