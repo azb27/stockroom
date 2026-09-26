@@ -193,10 +193,13 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
     - 17 new tests (API, guards, deploy staging). CI builds the web app.
     - The image and the deploy script both refuse `ground_truth.duckdb`.
   - *Not done:* the live URL. Hugging Face made Docker Spaces paid in July 2026, and the deploy stopped at `402 Payment Required`. Deploying before outreach is on the Deferred list.
-- [ ] **P8: Ship (1 day).**
-  - README as a product spec: problem → demo GIF → architecture → eval table → cost → limitations.
-  - Engagement docs complete: runbook and week-2 plan.
-  - 90-second Loom and a LinkedIn post with one real number.
+- [ ] **P8: Ship (1 day).** *Repo side done 2026-09-26; the video and the post are Aziz's.*
+  - [x] README as a product spec: problem → demo GIF → architecture → eval table → cost → limitations.
+    - The phase diary moved to `docs/build-log.md`.
+    - The GIF is a real session, from `scripts/record_demo_gif.py` against the Docker image.
+    - An independent fact-check of every number and link fixed 3 wrong claims, 7 misleading ones and 1 broken link before publishing.
+  - [x] Engagement docs complete: `docs/engagement/runbook.md` and `docs/engagement/week-2-plan.md`.
+  - [ ] 90-second Loom and a LinkedIn post with one real number (120/120 vs 63%). The script and draft are in the project doc `stockroom/launch-kit.md`.
 - [ ] **Deferred (owner decision; do before outreach):**
   - Deploy the demo image. Recommended: Fly.io with auto-stop (~$1–3/month, card required). Alternative: HF PRO ($9/month), using the existing `scripts/deploy_space.py`.
   - Claude Desktop screenshot of the MCP tools. Needs the data built on Aziz's Mac.
