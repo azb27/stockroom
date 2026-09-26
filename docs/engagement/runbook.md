@@ -11,7 +11,7 @@
 | `stockroom-mcp` | The same tools for Claude Desktop / Claude Code | `runs/mcp/calls.jsonl` (audit) |
 | `stockroom.approvals` | Human decisions on drafts (CLI) | `app.duckdb` |
 
-The tools read `warehouse.duckdb` and `forecast.duckdb` read-only. **Only `app.duckdb` is ever written while the app runs**, and it is opened per operation, so the CLI and the web app can both write to it without locking each other out.
+The tools read `warehouse.duckdb` and `forecast.duckdb` read-only. **`app.duckdb` is the only database written while the app runs** (plus append-only logs under `runs/`), and it is opened per operation, so the CLI and the web app can both write to it without locking each other out.
 
 ## Routine
 | When | Do | Check |
@@ -19,7 +19,7 @@ The tools read `warehouse.duckdb` and `forecast.duckdb` read-only. **Only `app.d
 | Each new export (daily) | `python -m stockroom.data.pipeline` (about 20 s) | Read `core.dq_issues`: counts should look like the last run's. A new issue type, or a jump in rows affected, means stop and investigate (below). |
 | Weekly, after the Saturday–Friday week closes | `python -m stockroom.forecast.train` (about 15 min on 2 cores) | Open `docs/results/forecast_backtest.md`. The model must still beat the same-weekday baseline at SKU level, and "above P90" should stay near 10%. If not, keep last week's `forecast.duckdb`. |
 | Before any change to prompts, tools, cleaning or model | `python -m evals.run --config sonnet_v2 --budget 5`, then `python -m evals.report` | Overall accuracy stays inside the last run's CI (`docs/results/eval.md`). No missing-day question may be answered with a number. |
-| On every pull request | CI runs lint, the data build, tests, the web build and a 20-question Haiku smoke eval | Fails if the smoke eval drops more than 10 points below `evals/baseline.json`. |
+| Every push to main and every PR | CI runs lint, the data build, tests and the web build. PRs touching `src/` or `evals/` also run a 20-question Haiku smoke eval (needs the API key secret). | The smoke eval fails if accuracy drops more than 10 points below `evals/baseline.json`. |
 | Daily, by the buyer | `python -m stockroom.approvals list --status PENDING_APPROVAL`, or the approval panel in the UI | Every draft is approved (with a name) or rejected (with a reason). Nothing is ever sent automatically. |
 
 ## When something goes wrong

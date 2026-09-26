@@ -138,7 +138,7 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
   - *Done:* 76 tests pass.
     - 27 attacks rejected by the guard alone; 7 blocked by the connection alone.
     - Tool revenue within 0.0002% of truth.
-    - All 498 planted stock-outs found; 99.7% of overstock flags are correct.
+    - All 498 planted stock-outs with recent demand found; 99.7% of overstock flags are correct.
     - Volume + mix + price sums to the delta for every group.
 - [x] **P3: Forecast + reorder.**
   - Direct LightGBM (Tweedie mean + scaled quantile P10/P90), leak-proof backtest, batch scoring into `forecast.duckdb`.
@@ -163,10 +163,10 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
     - Router: 96%. It escalated 4 questions and gained nothing (Sonnet vs Haiku 5–0, p = 0.06).
   - Cleaning layer, same model: **100% vs 60%** on lookups and aggregations (T1 + T2), 63% overall on raw data (McNemar 44–0 over all 120, p = 1e-13).
   - Missing days: 9 questions touch the outage, and none was answered as zero in any cleaned run. Both success criteria are met.
-  - The eval found a product bug: a case-mismatched filter returned empty and was reported as 0. `run_sql` now names the mismatch. Haiku went from 92% to 96% (T3 67% → 87%), p = 0.18.
+  - The eval found a product bug: a case-mismatched filter returned empty and was reported as 0. `run_sql` now names the mismatch. Haiku went from 92% to 96% overall (p = 0.18), and T3 went from 67% to 87%.
   - Failure write-up: `docs/results/eval_failure_analysis.md` covers 4 traced failures. `evals/CORRECTIONS.md` lists 6 fixes to the eval itself.
   - Deterministic scoring: ADR 0005. There are 118 tests.
-  - CI runs lint, the data build and tests on every push, plus a 20-question Haiku smoke eval on PRs against `evals/baseline.json`.
+  - CI runs lint, the data build and tests on pushes to main and on PRs, plus a 20-question Haiku smoke eval on PRs touching `src/` or `evals/` against `evals/baseline.json`.
   - Total API spend about $12.
 - [x] **P6: MCP server + Claude Code skill (1 day).**
   - `stockroom-mcp` (MCP SDK low-level server built from the tool registry, not FastMCP; see ADR 0006), stdio plus loopback-only streamable HTTP. Also `.mcp.json` and `.claude/skills/stockroom-analyst/SKILL.md`.
