@@ -28,7 +28,7 @@ Data honesty (README must say this plainly):
                          │ bootstrap CIs · per-tier accuracy · $/q · p50/p95 latency  │
                          └──────────────────────────────┬─────────────────────────────┘
                                                         │ drives
-  Next.js UI (Vercel) ──HTTP/SSE──> FastAPI (Fly/Render) ──> agent loop (Anthropic Client SDK)
+  Next.js UI (static) ──HTTP/SSE──> FastAPI, one container ──> agent loop (Anthropic Client SDK)
    chat · tool trace ·                                        │  max 12 tool calls · $ cap · tracing
    PO approval queue                                          │
                                                               ▼
@@ -183,15 +183,23 @@ Each phase ends with passing tests and a commit. Estimates assume ~3 focused hou
       - Real stdio and HTTP transports work.
       - A foreign Host header is rejected, and binding beyond loopback is refused.
     - **Bug fixed along the way:** a long-lived tool process held `app.duckdb` and locked out `stockroom.approvals`. Connections are now per operation, with a regression test.
-- [ ] **P7: API + UI + deploy (3 days).**
+- [x] **P7: API + UI + deploy (3 days).** *Built and tested. The public deploy is deferred by the owner's decision (2026-09-26); see "Deferred" below.*
   - FastAPI with SSE, Next.js chat with tool-trace panel and PO approval queue.
-  - Backend on Fly.io or Render (DuckDB baked into the image); frontend on Vercel.
-  - *Done:* live URL.
+  - One container: the Next.js static export is served by FastAPI, with no Vercel (ADR 0007).
+  - *Done:*
+    - `stockroom-web` runs the demo. It has been verified in the Docker image with the live model (`docs/images/web_demo*.png`, from `scripts/screenshot_demo.py`).
+    - Spend guards: $0.50/day, 10 questions/hour per visitor, $0.10 per conversation, 2 concurrent runs. Chat fails closed to the recorded eval.
+    - Per-tab isolation of drafts. Approval is a human-only route.
+    - 17 new tests (API, guards, deploy staging). CI builds the web app.
+    - The image and the deploy script both refuse `ground_truth.duckdb`.
+  - *Not done:* the live URL. Hugging Face made Docker Spaces paid in July 2026, and the deploy stopped at `402 Payment Required`. Deploying before outreach is on the Deferred list.
 - [ ] **P8: Ship (1 day).**
   - README as a product spec: problem → demo GIF → architecture → eval table → cost → limitations.
   - Engagement docs complete: runbook and week-2 plan.
-  - Claude Desktop screenshot of the Stockroom MCP tools in use (moved from P6).
   - 90-second Loom and a LinkedIn post with one real number.
+- [ ] **Deferred (owner decision; do before outreach):**
+  - Deploy the demo image. Recommended: Fly.io with auto-stop (~$1–3/month, card required). Alternative: HF PRO ($9/month), using the existing `scripts/deploy_space.py`.
+  - Claude Desktop screenshot of the MCP tools. Needs the data built on Aziz's Mac.
 - [ ] **P9 (stretch).**
   - Overnight replenishment job on the Claude Agent SDK: sessions and hooks, with a `PreToolUse` hook enforcing the approval policy.
 

@@ -34,3 +34,10 @@ The demo's audience is a recruiter clicking a link weeks after it was posted. It
 - **Next.js on Vercel plus a separate API:** Vercel is a keyword employers look for. But two deploys, CORS and two sets of logs double the ways a months-old demo link can break, for no feature the user sees.
 - **Streaming model tokens to the browser:** it feels faster. But the loop's guarantees (caps, the forced final answer) are simpler to show with whole turns, and tool events already give live progress.
 - **Accounts or login:** the right way to isolate users. It's too much friction for a portfolio demo whose drafts are throwaway.
+
+## Addendum (2026-09-26): Hugging Face hosting blocked, deploy deferred
+- **What happened.** The first deploy failed at `create_repo` with `402 Payment Required`. Since about July 2026, Hugging Face requires a PRO subscription or billing on the account for Docker (and Gradio) Spaces on cpu-basic; static Spaces stay free. We found no announcement beyond community forum threads.
+- **Decision.** The owner deferred the public deploy until just before outreach, when a live link actually gets clicked. Paying rent on an unvisited page buys nothing.
+- **Hosting when we deploy:** Fly.io with auto-stop, about $1–3/month for a 1 GB shared-cpu machine that wakes in seconds, versus $9/month for HF PRO.
+- **What carries over unchanged:** the image, the guards and the tests. `scripts/deploy_space.py` still works if PRO is chosen.
+- **Until then:** the README shows screenshots and a GIF recorded from the real image with the live model.
